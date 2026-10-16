@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "melodyctl"
+version = "1.0.0"
+description = "Control OPPO Enco Buds (ETI81) from Linux over the OPOv1/RFCOMM protocol: per-ear battery, touch gestures, game mode."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Chirag Verma" }]
+keywords = ["oppo", "enco", "bluetooth", "rfcomm", "spp", "heymelody", "linux"]
+classifiers = [
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Utilities",
+]
+
+[project.scripts]
+melodyctl = "melodyctl:main"
+
+[tool.setuptools]
+py-modules = ["melodyctl"]

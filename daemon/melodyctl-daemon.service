@@ -1,0 +1,14 @@
+[Unit]
+Description=melodyctl battery daemon for OPPO Enco Buds (OPOv1/RFCOMM)
+After=bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+ExecStart=%h/stuff/melodyctl/daemon/melodyctl-daemon.py
+Environment=MELODYCTL_INTERVAL=30
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
