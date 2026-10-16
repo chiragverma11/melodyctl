@@ -36,15 +36,17 @@ Only one RFCOMM connection is allowed at a time (it coexists fine with A2DP).
 
 ```bash
 # install as a command (recommended) -> provides `melodyctl` on PATH
-pipx install git+https://github.com/chiragverma11/melodyctl
+uv tool install --python /usr/bin/python3 git+https://github.com/chiragverma11/melodyctl
 
-# or from a local checkout
-git clone https://github.com/chiragverma11/melodyctl
-pipx install ./melodyctl
-
-# or just run it in place
-python3 melodyctl.py --help
+# alternatives
+pipx install git+https://github.com/chiragverma11/melodyctl   # pipx also works
+python3 melodyctl.py --help                                   # or just run it in place
 ```
+
+> **Use a system Python.** `melodyctl` needs `socket.AF_BLUETOOTH`, which uv's
+> *managed* CPython builds omit - hence `--python /usr/bin/python3` above. If you
+> see `this Python has no Bluetooth socket support`, reinstall with a system
+> interpreter.
 
 ## Usage
 

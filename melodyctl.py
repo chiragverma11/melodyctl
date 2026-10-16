@@ -34,7 +34,7 @@ import socket
 import sys
 import time
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 ADDR_DEFAULT = (os.environ.get("MELODYCTL_ADDR")
                 or os.environ.get("ENCO_ADDR", "6C:0D:E1:5F:DB:4D"))
@@ -234,6 +234,13 @@ class Buds:
         self.close()
 
     def connect(self) -> None:
+        if not hasattr(socket, "AF_BLUETOOTH"):
+            raise OSError(
+                "this Python has no Bluetooth socket support (socket.AF_BLUETOOTH); "
+                "install with a system Python instead, e.g. "
+                "'uv tool install --python /usr/bin/python3 "
+                "git+https://github.com/chiragverma11/melodyctl'"
+            )
         s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
         s.settimeout(self.timeout)
         s.connect((self.addr, RFCOMM_CH))

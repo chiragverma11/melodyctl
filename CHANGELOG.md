@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-10-16
+
+### Added
+- Clear error when run on a Python without `socket.AF_BLUETOOTH` (uv's managed
+  CPython builds lack it).
+
+### Changed
+- Recommend `uv tool install --python /usr/bin/python3 ...`; pipx kept as an
+  alternative. (uv now manages the CLI alongside other tools.)
+
 ## [1.1.0] - 2026-10-16
 
 ### Added
