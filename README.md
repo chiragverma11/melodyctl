@@ -35,9 +35,14 @@ Only one RFCOMM connection is allowed at a time (it coexists fine with A2DP).
 ## Install
 
 ```bash
-# from a checkout
-pipx install .
-# or run in place
+# install as a command (recommended) -> provides `melodyctl` on PATH
+pipx install git+https://github.com/chiragverma11/melodyctl
+
+# or from a local checkout
+git clone https://github.com/chiragverma11/melodyctl
+pipx install ./melodyctl
+
+# or just run it in place
 python3 melodyctl.py --help
 ```
 
@@ -75,8 +80,9 @@ cat "$XDG_RUNTIME_DIR/melodyctl-battery.json"
 
 ## Desktop widget
 
-A DankMaterialShell (Quickshell) widget lives in a separate repo,
-**`melodyctl-dms`**, and drives this CLI via its `scriptPath` setting.
+A DankMaterialShell (Quickshell) widget lives in the **`dms-plugins`** repo
+(`melodyctl/` folder) and drives this CLI. It finds the `melodyctl` command on
+`PATH`, or you can point it at a script path in its settings.
 
 ## Files
 

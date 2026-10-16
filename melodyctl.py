@@ -34,6 +34,8 @@ import socket
 import sys
 import time
 
+__version__ = "1.1.0"
+
 ADDR_DEFAULT = (os.environ.get("MELODYCTL_ADDR")
                 or os.environ.get("ENCO_ADDR", "6C:0D:E1:5F:DB:4D"))
 RFCOMM_CH = 12
@@ -451,6 +453,7 @@ def _fmt_battery(b: dict) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="melodyctl", description="OPPO Enco Buds control (OPOv1/RFCOMM)")
+    ap.add_argument("-V", "--version", action="version", version=f"melodyctl {__version__}")
     ap.add_argument("-a", "--addr", default=ADDR_DEFAULT, help="buds Bluetooth address")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
