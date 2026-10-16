@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-10-16
+
+### Added
+- Machine-readable errors: with `--json`, a failure prints a single JSON object
+  on stderr - `{"error":{"code","message","hint"}}`. Codes: `busy`, `refused`,
+  `unreachable`, `no_adapter`, `timeout`, `no_bluetooth_support`, `error`.
+
+### Changed
+- No more tracebacks: every exception is reported as one clean `error:` line
+  (plus a `hint:` line when known). Set `MELODYCTL_DEBUG=1` to see the traceback.
+  This lets the DMS widget/settings show a short message instead of raw stderr.
+
 ## [1.1.1] - 2026-10-16
 
 ### Added

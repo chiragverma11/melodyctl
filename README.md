@@ -69,6 +69,20 @@ melodyctl watch                   # tap the buds to see live gesture events
 device's advertised support, and refuses silently-invalid writes unless you
 pass `--force`.
 
+## Errors
+
+Failures print as a **single line** (never a Python traceback), plus a `hint:`
+line when known. With `--json` they become a machine-readable object on stderr:
+
+```bash
+$ melodyctl battery --json
+{"error": {"code": "unreachable", "message": "Host is down", "hint": "The earbuds are unreachable (off or out of range)."}}
+```
+
+Codes: `busy` (another app holds the link), `refused`, `unreachable`,
+`no_adapter` (Bluetooth off), `timeout`, `no_bluetooth_support` (wrong Python),
+`error`. Set `MELODYCTL_DEBUG=1` to get the full traceback.
+
 ## Battery daemon (optional)
 
 Publishes battery JSON for status bars/widgets:

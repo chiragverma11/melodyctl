@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "melodyctl"
-version = "1.1.1"
+version = "1.2.0"
 description = "Control OPPO Enco Buds (ETI81) from Linux over the OPOv1/RFCOMM protocol: per-ear battery, touch gestures, game mode."
 readme = "README.md"
 requires-python = ">=3.10"

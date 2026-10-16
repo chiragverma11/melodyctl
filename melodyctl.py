@@ -33,12 +33,22 @@ import os
 import socket
 import sys
 import time
+import traceback
 
-__version__ = "1.1.1"
+__version__ = "1.2.0"
 
 ADDR_DEFAULT = (os.environ.get("MELODYCTL_ADDR")
                 or os.environ.get("ENCO_ADDR", "6C:0D:E1:5F:DB:4D"))
 RFCOMM_CH = 12
+
+
+class MelodyctlError(Exception):
+    """A user-facing failure carrying a stable code and an optional hint."""
+
+    def __init__(self, message: str, code: str = "error", hint: str = "") -> None:
+        super().__init__(message)
+        self.code = code
+        self.hint = hint
 
 # ---- command ids (little-endian on the wire) --------------------------------
 CMD_CAPS = 0x0100            # getRemoteCapability -> bitmap of supported groups
@@ -235,11 +245,11 @@ class Buds:
 
     def connect(self) -> None:
         if not hasattr(socket, "AF_BLUETOOTH"):
-            raise OSError(
-                "this Python has no Bluetooth socket support (socket.AF_BLUETOOTH); "
-                "install with a system Python instead, e.g. "
-                "'uv tool install --python /usr/bin/python3 "
-                "git+https://github.com/chiragverma11/melodyctl'"
+            raise MelodyctlError(
+                "this Python has no Bluetooth socket support (socket.AF_BLUETOOTH)",
+                code="no_bluetooth_support",
+                hint="Install melodyctl with a system Python, e.g. 'uv tool install "
+                     "--python /usr/bin/python3 git+https://github.com/chiragverma11/melodyctl'.",
             )
         s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
         s.settimeout(self.timeout)
@@ -458,6 +468,52 @@ def _fmt_battery(b: dict) -> str:
     return "  ".join(parts)
 
 
+# ---- friendly, single-line errors -------------------------------------------
+# errno -> (code, hint). The CLI never dumps a traceback to users, and widgets
+# can map a failure to a short message instead of showing raw stderr.
+_ERRNO_HINTS: dict[int, tuple[str, str]] = {
+    16: ("busy", "Another app (e.g. HeyMelody) is using the earbuds; only one "
+                 "connection is allowed at a time."),
+    19: ("no_adapter", "No Bluetooth adapter found - is Bluetooth enabled?"),
+    110: ("timeout", "No response from the earbuds (timed out)."),
+    111: ("refused", "The earbuds refused the connection (off, out of range, or "
+                     "not paired)."),
+    112: ("unreachable", "The earbuds are unreachable (off or out of range)."),
+    113: ("unreachable", "The earbuds are unreachable (off or out of range)."),
+}
+
+
+def classify_error(exc: BaseException) -> tuple[str, str]:
+    """Map an exception to a stable (code, hint) pair."""
+    if isinstance(exc, MelodyctlError):
+        return (exc.code, exc.hint)
+    if isinstance(exc, AttributeError) and "AF_BLUETOOTH" in str(exc):
+        return ("no_bluetooth_support",
+                "Install melodyctl with a system Python "
+                "(uv tool install --python /usr/bin/python3 ...).")
+    if isinstance(exc, TimeoutError):
+        return _ERRNO_HINTS[110]
+    err = getattr(exc, "errno", None)
+    if err in _ERRNO_HINTS:
+        return _ERRNO_HINTS[err]
+    return ("error", "")
+
+
+def emit_error(exc: BaseException, json_mode: bool) -> None:
+    """Print one clean line - or a JSON object under --json - describing a failure."""
+    code, hint = classify_error(exc)
+    message = getattr(exc, "strerror", None) or str(exc) or exc.__class__.__name__
+    if not json_mode:
+        print(f"error: {message}", file=sys.stderr)
+        if hint:
+            print(f"hint:  {hint}", file=sys.stderr)
+        return
+    err: dict[str, str] = {"code": code, "message": message}
+    if hint:
+        err["hint"] = hint
+    print(json.dumps({"error": err}), file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="melodyctl", description="OPPO Enco Buds control (OPOv1/RFCOMM)")
     ap.add_argument("-V", "--version", action="version", version=f"melodyctl {__version__}")
@@ -513,6 +569,8 @@ def main(argv: list[str] | None = None) -> int:
     p_raw.add_argument("hex")
 
     args = ap.parse_args(argv)
+
+    json_mode = "--json" in (sys.argv[1:] if argv is None else argv)
 
     try:
         if args.cmd == "battery":
@@ -687,11 +745,10 @@ def main(argv: list[str] | None = None) -> int:
             with Buds(args.addr) as conn:
                 print(conn.raw(bytes.fromhex(args.hex.replace(" ", ""))).hex(" ").upper())
             return 0
-    except OSError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
-    except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - users get one clean line, never a traceback
+        emit_error(exc, json_mode)
+        if os.environ.get("MELODYCTL_DEBUG") == "1":
+            traceback.print_exc()
         return 1
     return 0
 
