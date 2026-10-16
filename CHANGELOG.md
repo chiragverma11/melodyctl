@@ -3,6 +3,12 @@
 All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] - 2026-10-16
+
+### Fixed
+- Ctrl-C (`SIGINT`) now exits quietly with status 130 instead of printing a
+  `KeyboardInterrupt` traceback (visible in `monitor` and `watch`).
+
 ## [1.2.0] - 2026-10-16
 
 ### Added

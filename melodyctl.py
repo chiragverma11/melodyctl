@@ -35,7 +35,7 @@ import sys
 import time
 import traceback
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 ADDR_DEFAULT = (os.environ.get("MELODYCTL_ADDR")
                 or os.environ.get("ENCO_ADDR", "6C:0D:E1:5F:DB:4D"))
@@ -745,6 +745,9 @@ def main(argv: list[str] | None = None) -> int:
             with Buds(args.addr) as conn:
                 print(conn.raw(bytes.fromhex(args.hex.replace(" ", ""))).hex(" ").upper())
             return 0
+    except KeyboardInterrupt:
+        # Ctrl-C: exit quietly (no traceback) with the conventional 130.
+        return 130
     except Exception as exc:  # noqa: BLE001 - users get one clean line, never a traceback
         emit_error(exc, json_mode)
         if os.environ.get("MELODYCTL_DEBUG") == "1":
