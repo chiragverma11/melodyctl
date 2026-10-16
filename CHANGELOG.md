@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-10-16
+
+### Added
+- `melodyctl --version` / `-V`.
+
+### Changed
+- Document installing as a command with
+  `pipx install git+https://github.com/chiragverma11/melodyctl`.
+
 ## [1.0.0] - 2026-10-16
 
 First release. Verified on the **OPPO Enco Buds (ETI81)**.
