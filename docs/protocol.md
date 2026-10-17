@@ -83,34 +83,22 @@ differs in every observed capture.
 Read `0x0108`, write `0x0401`. Each entry is
 `(deviceType, button, buttonAction, function)`.
 
+The full vocabulary lives in `protocol/commands/gestures.md`; in short:
+
 - **deviceType** (ear): `1` = left, `2` = right, `4` = both (write only; the
   tool splits `4` into per-ear writes). `255` = unspecified in the app.
-- **button**: `1` = tap/touch (the only one on ETI81), `6` = slide/pinch group
-  (`N9/k.java` maps actions 28-37 to button 6).
-- **buttonAction**: `1` single tap, `2` double, `3` triple, `4` long press;
-  `16-19` are single/double/triple/long **pinch** (button 6).
+- **button**: `1` = tap/touch; `2/3/5/6` = neckband volume keys / middle
+  button (only `1` and `5` occur in the whitelist) [apk:Ha.a#g].
+- **buttonAction**: `1-4` single/double/triple/long press, `5` slide, `6`
+  super-long press, `7/8` slide up/down, `16-18` and `20` pinch
+  singles/doubles/triples/long [apk:Ha.a#g].
+- **function**: wire codes are derived from each slot's whitelist `support`
+  mask (`Ha.a#b` / `Ha.a#c`); codes 4/5/6 shift on the two "OnePlus Buds" /
+  "OnePlus Buds Z" models (there code 5 = next song) [apk:d#I].
 
-### Function codes (`N.b`, `Ha.a.b`)
-
-Codes **4 / 5 / 6 are product-dependent**. `d.I(product)` is true only for
-`"OnePlus Buds"` / `"OnePlus Buds Z"`; ETI81 is neither, so the OPPO branch
-applies:
-
-| code | OPPO branch (ETI81) | OnePlus branch |
-|---|---|---|
-| 0 | none | none |
-| 1 | play/pause | play/pause |
-| 3 | voice assistant | voice assistant |
-| 4 | *(unused)* | previous song |
-| 5 | previous song | next song |
-| 6 | next song | *(unused)* |
-| 11 | volume up | volume up |
-| 12 | volume down | volume down |
-| 17 | game mode | game mode |
-
-Other codes exist in the app (2 resume, 7 adjust volume, 8 noise reduction,
-9 play collection, 10 switch song, 13 switch device, 18 zen mode, 22 collect
-music, 25-35 AI/GMN/call features) but are **not advertised for ETI81**.
+`melodyctl gesture-set` validates the combo against the connected device's
+whitelist control table; `0x0401` ack payload: `0` = ok, `1` = rejected
+(invalid slot/function).
 
 ### Allowed combinations on ETI81
 
@@ -122,8 +110,6 @@ From the whitelist `control` support masks (`062410`):
 | 2 double tap | 612 (`512\|4\|32\|64`) | none, play/pause, previous(5), next(6) |
 | 3 triple tap | 8705 (`8192\|512\|1`) | none, voice assistant(3), game mode(17) |
 | 4 long press | 536 (`512\|16\|8`) | none, volume up(11), volume down(12) |
-
-`0x0401` ack payload: `0` = ok, `1` = rejected (invalid slot/function).
 
 ## Game mode
 

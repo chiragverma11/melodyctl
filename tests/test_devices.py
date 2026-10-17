@@ -15,7 +15,7 @@ class ProfileDb(unittest.TestCase):
         self.assertEqual(p["name"], "OPPO Enco Buds")
         self.assertEqual(p["brand"], "oppo")
         self.assertTrue(devices.is_verified("062410"))
-        self.assertEqual(devices.caps_summary(p), ["battery", "game-mode"])
+        self.assertEqual(devices.caps_summary(p), ["battery", "game-mode", "gestures(4)"])
 
     def test_unknown_and_empty(self):
         self.assertIsNone(devices.profile_for("ffffff"))

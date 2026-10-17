@@ -36,6 +36,34 @@ def modes(entries: list[dict]) -> list[dict]:
     return out
 
 
+def gestures(entries: list[dict]) -> list[dict] | None:
+    """Whitelist gesture slots: action (and sometimes button) + support mask.
+
+    ``support`` is a bitmask over HeyMelody's function presets (see
+    ``melodyctl/protocol.py`` PRESETS) - it is what the app offers per slot.
+    """
+    out = []
+    for c in entries or []:
+        item = {"action": c.get("action")}
+        if c.get("button") is not None:
+            item["button"] = c["button"]
+        if c.get("support") is not None:
+            item["support"] = c["support"]
+        if c.get("ear") is not None:
+            item["ear"] = c["ear"]
+        if c.get("showEar") is not None:
+            item["show_ear"] = c["showEar"]
+        if c.get("minSelectCount") is not None:
+            item["min_select_count"] = c["minSelectCount"]
+        mods = c.get("entryStrModify")
+        if mods:
+            # raw passthrough: the app uses these to override a few labels
+            # (keys vary: categoryVersion / targetFunction + summaryVersion)
+            item["entry_str_modify"] = mods
+        out.append(item)
+    return out or None
+
+
 def profile_for(entry: dict) -> dict:
     f = entry.get("function", {})
     eq_modes = f.get("equalizerMode")
@@ -52,6 +80,7 @@ def profile_for(entry: dict) -> dict:
             "battery": bool(f.get("batteryInfo")),
             "game_mode": bool(f.get("gameMode")),
             "anc": modes(anc) if anc else None,
+            "gestures": gestures(f.get("control")),
             "eq": {
                 "modes": modes(eq_modes) if eq_modes else [],
                 "custom": bool(f.get("customEqualizer")),
@@ -86,6 +115,7 @@ def main() -> int:
     eqm = sum(1 for p in profiles.values() if p["caps"]["eq"] and p["caps"]["eq"]["modes"])
     custom = sum(1 for p in profiles.values() if p["caps"]["eq"] and p["caps"]["eq"]["custom"])
     game = sum(1 for p in profiles.values() if p["caps"]["game_mode"])
+    gest = sum(1 for p in profiles.values() if p["caps"]["gestures"])
     brands = sorted({p["brand"] for p in profiles.values() if p["brand"]})
 
     lines = [
@@ -100,10 +130,11 @@ def main() -> int:
         f"- ANC modes (`noiseReductionMode`): **{anc}**",
         f"- EQ modes (`equalizerMode`): **{eqm}** · custom EQ (`customEqualizer`): **{custom}**",
         f"- game mode (`gameMode`): **{game}**",
+        f"- gesture tables (`control`): **{gest}**",
         f"- brands: {', '.join(brands)}",
         "",
-        "| id | name | brand | SPP | ANC | EQ | custom EQ | game | status |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| id | name | brand | SPP | ANC | EQ | custom EQ | game | gestures | status |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for pid, p in sorted(profiles.items(), key=lambda kv: kv[1]["name"] or ""):
         c = p["caps"]
@@ -114,12 +145,13 @@ def main() -> int:
             f"{'yes' if c['eq'] and c['eq']['modes'] else '-'} | "
             f"{'yes' if c['eq'] and c['eq']['custom'] else '-'} | "
             f"{'yes' if c['game_mode'] else '-'} | "
+            f"{len(c['gestures']) if c['gestures'] else '-'} | "
             f"{'verified' if pid in VERIFIED else 'untested'} |")
     COVERAGE.write_text("\n".join(lines) + "\n")
 
     print(f"profiles: {n} devices -> {PROFILES.relative_to(ROOT)}")
     print(f"coverage: {COVERAGE.relative_to(ROOT)}")
-    print(f"stats: spp={spp} anc={anc} eq={eqm} custom={custom} game={game}")
+    print(f"stats: spp={spp} anc={anc} eq={eqm} custom={custom} game={game} gestures={gest}")
     print(f"brands: {brands}")
     if dups:
         print(f"WARNING duplicate ids: {dups}")

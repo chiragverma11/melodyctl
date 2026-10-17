@@ -5,10 +5,26 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- Gesture support is now one-to-one with HeyMelody across the family:
+  `profiles.json` carries every device's `function.control` slots (83/85
+  entries; actions up to 27, `button: 5` on the Bullets Wireless Z3), and
+  `gesture-set` validates the requested combo against the *connected* device's
+  support masks before writing (the ETI81 checks are now generated from the
+  same data). The full preset/action/button vocabulary from the app is
+  documented in `docs/protocol/commands/gestures.md`.
+
+### Fixed
+- Gesture naming corrected against the HeyMelody app: function code 2 is
+  "listening music" (was `resume`), 26/27 are AI translation variants, 32 is
+  "spy tap"; button 6 means the neckband volume-key pair (the old
+  "slide/pinch group / actions 28-37" claim was wrong - pinch is actions
+  16-20), and the misleading `button=long` alias is gone.
+
 ### Documentation
 - CLI help, README, daemon and tools wording now present the tool as
-  HeyMelody-family; the `gesture-set` tables are labelled as combos from the
-  verified profile (062410). No protocol facts changed.
+  HeyMelody-family; the `gesture-set` tables now list the family vocabulary
+  and note that per-device combos are checked against the connected device.
 - README restructured for visitors: install + quick start first, full command
   table, explicit verification ladder, linked `dms-plugins` widget section, and
   corrected daemon instructions. Whitelist/APK regeneration moved to

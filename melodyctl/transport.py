@@ -176,10 +176,10 @@ class Buds:
             return decode_caps(f["payload"])
         return set()
 
-    def gestures(self) -> list[dict]:
+    def gestures(self, oneplus_branch: bool = False) -> list[dict]:
         """Return the touch-gesture (key function) table."""
         for f in self.send(CMD_GESTURES_GET):
-            return decode_gestures(f["payload"])
+            return decode_gestures(f["payload"], oneplus_branch)
         return []
 
     def set_gesture(self, ear: int, button: int, action: int, function: int) -> list[dict]:

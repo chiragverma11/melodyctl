@@ -36,6 +36,26 @@ def is_verified(profile_id: str | None) -> bool:
     return bool(profile_id) and profile_id.upper() in VERIFIED
 
 
+def gesture_slots(profile: dict | None) -> list[dict]:
+    """The whitelist gesture slots (`function.control`) for a profile."""
+    if not profile:
+        return []
+    return profile.get("caps", {}).get("gestures") or []
+
+
+def gesture_slot(profile: dict | None, button: int, action: int) -> dict | None:
+    """The slot advertised for (button, action); a missing `button` means 1."""
+    for slot in gesture_slots(profile):
+        if slot.get("action") == action and (slot.get("button") or 1) == button:
+            return slot
+    return None
+
+
+def oneplus_branch(profile: dict | None) -> bool:
+    """The app's product check: exactly "OnePlus Buds"/"OnePlus Buds Z" [apk:d#I]."""
+    return bool(profile) and profile.get("name") in ("OnePlus Buds", "OnePlus Buds Z")
+
+
 def caps_summary(profile: dict) -> list[str]:
     """Short human summary of the capability flags we understand so far."""
     caps = profile.get("caps", {})
@@ -56,6 +76,9 @@ def caps_summary(profile: dict) -> list[str]:
             out.append("custom-eq")
     elif isinstance(eq, list) and eq:
         out.append(f"eq({len(eq)} presets)")
+    slots = [s for s in gesture_slots(profile) if s.get("support") is not None]
+    if slots:
+        out.append(f"gestures({len(slots)})")
     return out
 
 

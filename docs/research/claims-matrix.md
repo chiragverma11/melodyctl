@@ -5,7 +5,8 @@ Updated in the same commit as any change that affects it.
 
 Status legend:
 **verified** = we ran it on hardware · **external** = third party's published evidence
-(not our run) · **refuted** = checked and wrong · **untested** = derived, not verified.
+(not our run) · **app** = read from the HeyMelody APK (decompiled logic) ·
+**refuted** = checked and wrong · **untested** = derived, not verified.
 
 | # | claim | tag | status | evidence / notes |
 |---|---|---|---|---|
@@ -31,3 +32,7 @@ Status legend:
 | 20 | Write gate: `game`, `eq-set`, `gesture-set` read the `0x0103` product id first and refuse to write on non-`062410` ids unless `--force` is given | `[hw:ETI81 2026-10-17]` | verified on ETI81 | policy from `AGENTS.md` support ladder; read commands stay open on any device |
 | 21 | Whitelist ANC tables are hierarchical: top-level modes (`modeType` + `protocolIndex`) with `childrenMode` sub-modes; Enco X2/X3/X4 share the 5-NC pattern (children 7 smart / 4 deep / 8 medium / 3 light) plus off/transparency children | `[wl:06EC10]` `[wl:067410]` `[wl:063C10]` | verified | `melodyctl/data/profiles.json`; X4 adds a 10/11/12/13 adaptive family |
 | 22 | `melodyctl anc`: query prints the raw `0x810c` payload (ETI81: bare `02`, no bitmap) and, when bit-shaped, resolves the lowest set bit via the device's `protocolIndex` table; `anc set` builds the bitmap from that table and verifies by re-query | `[hw:ETI81 2026-10-17]` `[wl]` `[prior:leaf@feb7b70]` `[prior:gazz@abe70f4]` | query verified on ETI81; set path untested | no ANC hardware available; new `anc` command |
+| 23 | Gesture function presets: each whitelist `control` `support` bit is a preset id (0x200 none, 0x4 play/pause, 0x2 listening music, 0x1 voice assistant, … 0x2000000 GMN trigger; 26 presets, UI order from the app array); preset → wire code via `Ha.a#b` (0x20/0x40 shift by one on the OnePlus branch) | `[apk:Ha.a#c]` `[apk:Ha.a#b]` `[apk:Ha.a.<clinit>]` `[apk:d#I]` | app | full table in `docs/protocol/commands/gestures.md`; supersedes the earlier "2 = resume" reading (2 is listening music) |
+| 24 | Gesture action ids: 1-4 tap, 5 slide, 6 super-long press, 7/8 slide up/down, 16-18 pinch taps, 20 long pinch, 11/25/27 alt renderings; refutes the old "button 6 = slide/pinch group, actions 28-37" claim | `[apk:Ha.a#g]` | app | flip side: exact device support is per whitelist slot, not per id |
+| 25 | Gesture button ids: 1 tap/touch, 2/3 neckband volume keys, 5 middle button, 6 both volume keys (long press); only 1 and 5 occur in the whitelist (Z3 `051014` is button 5) | `[apk:Ha.a#g]` `[wl]` | app + whitelist census | `melodyctl/data/profiles.json` |
+| 26 | 83/85 whitelist entries carry `function.control` gesture slots; shipped as `caps.gestures` in `profiles.json`; `gesture-set` validates the requested combo against the connected device's slots and support masks | `[wl]` | verified (generated) | `tools/build-profiles.py`, `docs/devices/coverage.md` |

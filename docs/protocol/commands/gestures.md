@@ -14,45 +14,112 @@
 - Ack payload `0` = ok, `1` = rejected (invalid slot/function)
   [hw:ETI81 2026-10-17].
 
-## Field semantics (`N9/k`, `N.b`, `Ha.a.b`)
+## Field semantics
 
-| field | values |
+### `deviceType` (ear)
+
+| value | meaning |
 |---|---|
-| `deviceType` | `1` left, `2` right, `4` both (write only — our CLI splits `4` into per-ear writes because some combined writes are rejected [hw:ETI81 2026-10-17]); `255` = unspecified in the app [apk:N9/k] |
-| `button` | `1` tap/touch — the only kind on ETI81; `6` slide/pinch group, which `N9/k` maps actions 28-37 onto [apk:N9/k] |
-| `action` | `1` single, `2` double, `3` triple, `4` long press; `16-19` single/double/triple/long pinch (button 6) [apk:N9/k] |
+| 1 | left bud |
+| 2 | right bud |
+| 4 | both buds (write only; our CLI splits `4` into per-ear writes because some combined writes are rejected [hw:ETI81 2026-10-17]) |
+| 255 | unspecified in the app [apk:N9/k] |
+
+### `button` [apk:Ha.a#g]
+
+| value | meaning |
+|---|---|
+| 1 | tap/touch area (the only kind on ETI81) |
+| 2 / 3 | neckband volume +/- keys |
+| 5 | middle button (used by OnePlus Bullets Wireless Z3 `051014` [wl:051014]) |
+| 6 | both volume keys (long press) |
+
+### `action` [apk:Ha.a#g]
+
+| value | meaning |
+|---|---|
+| 1 | single tap |
+| 2 | double tap |
+| 3 | triple tap |
+| 4 | long press |
+| 5 | slide |
+| 6 | super-long press |
+| 7 / 8 | slide up / slide down |
+| 16 / 17 / 18 | single / double / triple pinch |
+| 20 | long pinch |
+| 11 / 25 / 27 | alternate ids the app also renders (11 and 27 long press, 25 middle-button long press) |
+
+The app has a second numbering for some device generations too: 27-34 mirror
+1-8/16-18 (27 long press, 28-31 single/double/triple/super-long, 32-34 pinch),
+35 super-long pinch, 36 middle-button call control, 37 middle-button long
+press; 26 has no label in the current APK [apk:Ha.a#g]. Whitelist slots use
+1-8, 11-18, 20, 25-27; a few legacy rows (actions 12-15) carry no `support`
+mask and are disabled [wl].
+
+### Function presets and wire codes
+
+Each whitelist gesture slot carries a `support` bitmask over the app's
+function presets; the app shows the set bits as the pickable functions
+[apk:Ha.a#c]. The preset order below is the app's picker order
+[apk:Ha.a.\<clinit\>], and each preset converts to the wire `function` code
+with `Ha.a#b` [apk:Ha.a#b]:
+
+| bit | preset | wire code |
+|---|---|---|
+| 0x200 | none | 0 |
+| 0x4 | play/pause | 1 |
+| 0x2 | listening music | 2 |
+| 0x1 | voice assistant | 3 |
+| 0x400 | adjust volume | 7 |
+| 0x80 | noise switch | 8 |
+| 0x100 | play collection | 9 |
+| 0x800 | switch song | 10 |
+| 0x8 | volume up | 11 |
+| 0x10 | volume down | 12 |
+| 0x1000 | switch device | 13 |
+| 0x2000 | game mode | 17 |
+| 0x10000 | zen mode | 18 |
+| 0x8000 | collect music | 22 |
+| 0x20000 | AI summary | 25 |
+| 0x100000 / 0x200000 | AI translation / v2 | 26 |
+| 0x40000 | reject call | 28 |
+| 0x80000 | answer/hang up | 29 |
+| 0x800000 | spy tap | 32 |
+| 0x1000000 | GMN play/pause | 34 |
+| 0x2000000 | GMN trigger | 35 |
+| 0x20 | previous song | 5 (4 on the OnePlus branch) |
+| 0x40 | next song | 6 (5 on the OnePlus branch) |
+| 0x4000 | enter pairing | — (no wire code in `Ha.a#b`) |
+| 0x400000 | clear pairing history | — (no wire code in `Ha.a#b`) |
 
 Codes 4/5/6 are product-dependent: the app branch `d.I(product)` is true only
-for "OnePlus Buds" / "OnePlus Buds Z", so ETI81 takes the OPPO column
-[apk:d#I] [apk:N.b] [apk:Ha.a.b].
+for the exact model names "OnePlus Buds" and "OnePlus Buds Z" [apk:d#I], so
+on those two code 4 = previous song, 5 = next song and 6 is unused. The
+presets carry *names*, so 0x20/0x40 are the only shifting bits.
 
-| code | OPPO (ETI81) | OnePlus branch |
-|---|---|---|
-| 0 | none | none |
-| 1 | play/pause | play/pause |
-| 3 | voice assistant | voice assistant |
-| 4 | *(unused)* | previous song |
-| 5 | previous song | next song |
-| 6 | next song | *(unused)* |
-| 11 | volume up | volume up |
-| 12 | volume down | volume down |
-| 17 | game mode | game mode |
+### Per-device slots
 
-Other codes exist in the app (2 resume, 7 adjust volume, 8 noise reduction,
-9 play collection, 10 switch song, 13 switch device, 18 zen mode, 22 collect
-music, 25-35 AI/GMN/call features) but are **not advertised for ETI81**
-[wl:062410] [apk:N.b].
+Every device's whitelist `function.control` entries are its gesture slots:
+`(action [, button])` plus a `support` mask (and optional label overrides
+like `entryStrModify`). 83 of the 85 whitelist entries have a control table,
+with slots using actions 1-8, 11-18, 20 and 25-27; only OnePlus Bullets
+Wireless Z3 (`051014`) uses `button: 5` [wl]. The full tables ship in
+`melodyctl/data/profiles.json` (`caps.gestures`), and `melodyctl gesture-set`
+validates the requested combo against the connected device's slots before
+writing (`--force` bypasses the check).
 
-## Allowed combinations on ETI81
+### Allowed combinations on ETI81
 
 From the whitelist `control` support masks [wl:062410]:
 
-| action | mask | allowed functions |
+| action | support mask | allowed functions (wire codes) |
 |---|---|---|
-| 1 single tap | 516 (`512\|4`) | none, play/pause |
-| 2 double tap | 612 (`512\|4\|32\|64`) | none, play/pause, previous(5), next(6) |
-| 3 triple tap | 8705 (`8192\|512\|1`) | none, voice assistant(3), game mode(17) |
-| 4 long press | 536 (`512\|16\|8`) | none, volume up(11), volume down(12) |
+| 1 single tap | 516 (`512\|4`) | none(0), play/pause(1) |
+| 2 double tap | 612 (`512\|4\|32\|64`) | none(0), play/pause(1), previous(5), next(6) |
+| 3 triple tap | 8705 (`8192\|512\|1`) | none(0), voice assistant(3), game mode(17) |
+| 4 long press | 536 (`512\|16\|8`) | none(0), volume up(11), volume down(12) |
 
-Other combinations are rejected by the device; `melodyctl gesture-set` gates
-on these masks (`--force` bypasses the gate only).
+Pinch models (X2/X3/X4, Buds Pro 2-4, …) advertise actions 16-18/20 with
+their own masks; e.g. OPPO Enco X4 (`06EC10`) adds action 5 (slide,
+`0xE00` = none|adjust-volume|switch-song) and a mask-less action 20 row.
+The CLI derives everything from these tables instead of hardcoding.

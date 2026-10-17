@@ -10,7 +10,7 @@ import traceback
 
 from . import __version__, devices
 from .errors import emit_error
-from .protocol import ACTION_ALIASES, ACTION_FUNCTIONS, ACTION_NAMES, BUTTON_ALIASES, BUTTON_NAMES, CMD_ANC_QUERY, CMD_BATT_GET, CMD_CAPS, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD_GESTURES_GET, CMD_GESTURES_SET, CMD_INFO, CMD_NOTIFY_PUSH, CMD_SWITCH_FEATURE, CMD_VERSION_GET, EAR, EAR_ALIASES, FUNCTION_ALIASES, FUNCTION_NAMES, MODE_NAMES, NOTIFY_NAMES, NOTIFY_USER_INTERACTION, _fmt_battery, _fmt_versions, anc_bitmap, decode_anc_bitmap, decode_caps, decode_product_id, decode_user_interaction, decode_version_records, parse_frames
+from .protocol import ACTION_ALIASES, ACTION_NAMES, BUTTON_ALIASES, BUTTON_NAMES, CMD_ANC_QUERY, CMD_BATT_GET, CMD_CAPS, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD_GESTURES_GET, CMD_GESTURES_SET, CMD_INFO, CMD_NOTIFY_PUSH, CMD_SWITCH_FEATURE, CMD_VERSION_GET, EAR, EAR_ALIASES, FUNCTION_ALIASES, FUNCTION_NAMES, MODE_NAMES, NOTIFY_NAMES, NOTIFY_USER_INTERACTION, _fmt_battery, _fmt_versions, anc_bitmap, decode_anc_bitmap, decode_caps, decode_product_id, decode_user_interaction, decode_version_records, function_name, mask_presets, mask_wires, parse_frames, preset_wire
 from .transport import ADDR_DEFAULT, Buds
 
 
@@ -28,29 +28,70 @@ def _resolve_int(value: str, aliases: dict[str, int], kind: str) -> int:
 
 
 def _gesture_tables() -> str:
-    """Render the gesture value tables + examples (used by --list and -h)."""
-    out = ["value tables  (combos come from the verified profile: OPPO Enco Buds,",
-           "              whitelist product 062410; other models may differ)", ""]
-    out.append("  ear     which bud        1=left, 2=right, 4=both (4 is split into per-ear writes)")
-    out.append("  button  which control    1=tap/touch, 6=slide/pinch (not on all models)")
-    out.append("  action  which gesture on that button:")
+    """Render the gesture vocabulary tables (used by --list and -h)."""
+    out = ["gesture values  (HeyMelody-family vocabulary; which combos a device",
+           "               accepts comes from its whitelist profile and is checked",
+           "               against the connected device when you write)", ""]
+    out.append("  ear       which bud       1=left, 2=right, 4=both (4 is split into per-ear writes)")
+    out.append("  button    which control   1=tap/touch, 2/3=neckband volume keys,")
+    out.append("                            5=middle button, 6=volume keys (long press)")
+    out.append("  action    which gesture on that button:")
     for a in sorted(ACTION_NAMES):
-        out.append(f"                          {a} = {ACTION_NAMES[a]}")
-    out.append("  function  what the gesture does (allowed combos on the verified profile):")
-    for a in sorted(ACTION_FUNCTIONS):
-        fns = ", ".join(f"{f}={FUNCTION_NAMES.get(f, '?')}" for f in ACTION_FUNCTIONS[a])
-        out.append(f"                          action {a} ({ACTION_NAMES[a]}): {fns}")
+        out.append(f"                            {a} = {ACTION_NAMES[a]}")
+    out.append("  function  what the gesture does (wire codes; 4/5/6 shift on the")
+    out.append("            two 'OnePlus Buds'/'OnePlus Buds Z' models):")
+    for f in sorted(FUNCTION_NAMES):
+        out.append(f"                            {f} = {FUNCTION_NAMES[f]}")
     out.append("")
     out.append("  Names are accepted as well as numbers, e.g. ear=left, action=triple,")
-    out.append("  function=assistant. Any other combo is rejected by the device.")
+    out.append("  function=assistant. Combos the device's profile does not allow are")
+    out.append("  rejected before sending (--force bypasses the check).")
     out.append("")
     out.append("examples:")
-    out.append("  melodyctl gesture-set left tap single none      # left single tap -> none")
+    out.append("  melodyctl gesture-set left tap single none       # left single tap -> none")
     out.append("  melodyctl gesture-set left tap double prev      # left double tap -> previous")
     out.append("  melodyctl gesture-set left tap triple assistant # left triple tap -> assistant")
     out.append("  melodyctl gesture-set right tap triple game     # right triple tap -> game mode")
     out.append("  melodyctl gesture-set both tap long vol+        # both long press -> volume up")
+    out.append("  melodyctl gesture-set left pinch double play    # left double pinch -> play/pause")
     return "\n".join(out)
+
+
+def _gesture_write_problems(profile: dict | None, args) -> list[str]:
+    """Device-specific pre-send checks against the whitelist control table.
+
+    Returns human problems; empty = fine. Unknown devices (no profile) and
+    profiles without a control table are not checked here - the write gate
+    still applies.
+    """
+    if profile is None:
+        return []
+    slots = devices.gesture_slots(profile)
+    if not slots:
+        return []
+    name = profile.get("name") or "this device"
+    slot = devices.gesture_slot(profile, args.button, args.action)
+    if slot is None:
+        actions = sorted({s.get("action") for s in slots if s.get("action") is not None})
+        return [f"{name} does not advertise a button {args.button} action {args.action} "
+                f"gesture slot (its whitelist slots use actions: "
+                + ", ".join(str(a) for a in actions) + ")"]
+    mask = slot.get("support")
+    if not mask:
+        return [f"{name}: the action {args.action} slot has no function mask in the "
+                f"whitelist, so function {args.function} cannot be checked"]
+    op = devices.oneplus_branch(profile)
+    pairs: dict[int, str] = {}
+    for bit, pname in mask_presets(mask):
+        code = preset_wire(bit, op)
+        if code is not None:
+            pairs.setdefault(code, pname)
+    if args.function not in pairs:
+        shown = ", ".join(f"{c}={n}" for c, n in sorted(pairs.items()))
+        return [f"{name}: action {ACTION_NAMES.get(args.action, args.action)} allows "
+                f"{shown}; function {args.function} "
+                f"({function_name(args.function, op)}) is not one of them"]
+    return []
 
 
 def _identify(conn: Buds) -> str | None:
@@ -140,13 +181,14 @@ def main(argv: list[str] | None = None) -> int:
     p_gs.add_argument("ear", nargs="?", type=lambda v: _resolve_int(v, EAR_ALIASES, "ear"),
                       help="which bud: 1=left, 2=right, 4=both")
     p_gs.add_argument("button", nargs="?", type=lambda v: _resolve_int(v, BUTTON_ALIASES, "button"),
-                      help="which control: 1=tap (6=slide/pinch on some models)")
+                      help="which control: 1=tap/touch, 5=middle button")
     p_gs.add_argument("action", nargs="?", type=lambda v: _resolve_int(v, ACTION_ALIASES, "action"),
-                      help="which gesture: 1=single 2=double 3=triple 4=long press")
+                      help="which gesture: 1=single ... 4=long press; 16-20=pinch on models that have it")
     p_gs.add_argument("function", nargs="?", type=lambda v: _resolve_int(v, FUNCTION_ALIASES, "function"),
                       help="what it does, e.g. play/pause, prev, next, vol+, assistant, game, none")
     p_gs.add_argument("-f", "--force", action="store_true",
-                      help="send even if the combo is not advertised or the product id is unverified")
+                      help="send even if the device's profile does not allow the combo, "
+                           "or the product id is unverified")
     p_gs.add_argument("-l", "--list", action="store_true",
                       help="print the gesture value tables and exit (no device connection)")
 
@@ -374,13 +416,16 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.cmd == "gestures":
             with Buds(args.addr) as conn:
-                g = conn.gestures()
+                pid = _identify(conn)
+                profile = devices.profile_for(pid)
+                g = conn.gestures(devices.oneplus_branch(profile))
             if args.json:
                 print(json.dumps(g))
             else:
                 for r in g:
-                    print(f"{r['ear']:<5} {r['action_name']:<12} -> "
-                          f"{r['function_name']:<16} (f{r['function']})")
+                    btn = "" if r["button"] == 1 else f" [{r['button_name']}]"
+                    print(f"{r['ear']:<5} {r['action_name']:<18}{btn} -> "
+                          f"{r['function_name']:<28} (f{r['function']})")
             return 0
 
         if args.cmd == "gesture-set":
@@ -394,33 +439,22 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"gesture-set: missing {'/'.join(missing)}; "
                       f"run 'melodyctl gesture-set --list' to see values", file=sys.stderr)
                 return 2
-
-            problems = []
             if args.ear not in EAR:
-                problems.append(f"ear {args.ear} is not 1=left/2=right/4=both")
-            if args.button not in BUTTON_NAMES:
-                problems.append(f"button {args.button} is not 1=tap/6=slide-pinch")
-            if args.button == 1:
-                allowed = ACTION_FUNCTIONS.get(args.action)
-                if allowed is None:
-                    problems.append(
-                        f"action {args.action} is not a gesture slot in the verified profile "
-                        f"(valid: {', '.join(str(a) for a in sorted(ACTION_FUNCTIONS))})")
-                elif args.function not in allowed:
-                    problems.append(
-                        f"function {args.function} ({FUNCTION_NAMES.get(args.function, '?')}) "
-                        f"is not allowed for {ACTION_NAMES.get(args.action)}; allowed: "
-                        + ", ".join(f"{f}={FUNCTION_NAMES.get(f, '?')}" for f in allowed))
-            if problems and not args.force:
-                for p in problems:
-                    print(f"error: {p}", file=sys.stderr)
-                print("       re-run with --force to send anyway.", file=sys.stderr)
+                print(f"error: ear {args.ear} is not 1=left/2=right/4=both", file=sys.stderr)
                 return 2
-            for p in problems:
-                print(f"warning: {p} (sending anyway due to --force)", file=sys.stderr)
 
             with Buds(args.addr) as conn:
-                if not _write_gate(_identify(conn), "gesture", args.force):
+                pid = _identify(conn)
+                profile = devices.profile_for(pid)
+                problems = _gesture_write_problems(profile, args)
+                if problems and not args.force:
+                    for p in problems:
+                        print(f"error: {p}", file=sys.stderr)
+                    print("       re-run with --force to send anyway.", file=sys.stderr)
+                    return 2
+                for p in problems:
+                    print(f"warning: {p} (sending anyway due to --force)", file=sys.stderr)
+                if not _write_gate(pid, "gesture", args.force):
                     return 2
                 resp = conn.set_gesture(args.ear, args.button, args.action, args.function)
             if not resp:
@@ -428,7 +462,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             acks = [r["payload"][0] if r["payload"] else None for r in resp]
             ok = bool(acks) and all(a == 0 for a in acks)
-            fn = FUNCTION_NAMES.get(args.function, args.function)
+            op = devices.oneplus_branch(profile)
+            fn = function_name(args.function, op)
             print(f"set ear={EAR.get(args.ear, args.ear)} button={BUTTON_NAMES.get(args.button, args.button)} "
                   f"action={ACTION_NAMES.get(args.action, args.action)} "
                   f"function={fn} -> ack {acks} ({'ok' if ok else 'rejected'})")
@@ -472,6 +507,8 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.cmd == "watch":
             with Buds(args.addr) as conn:
+                profile = devices.profile_for(_identify(conn))
+                op = devices.oneplus_branch(profile)
                 caps = conn.notify_caps()
                 print("pushable events:", ", ".join(
                     f"{e}({NOTIFY_NAMES.get(e, '?')})" for e in caps) or "(none)")
@@ -485,7 +522,7 @@ def main(argv: list[str] | None = None) -> int:
                         if not p:
                             continue
                         if p[0] == NOTIFY_USER_INTERACTION:
-                            d = decode_user_interaction(p[1:])
+                            d = decode_user_interaction(p[1:], op)
                             print(f"  GESTURE   ear={d.get('ear'):<5} button={d.get('button')} "
                                   f"action={d.get('action')} -> {d.get('function_name')} "
                                   f"({d.get('function')}) scene={d.get('scene')}", flush=True)
