@@ -1,6 +1,7 @@
 # Prior art — index
 
-Status: skeleton — Phase 1 writes the deep per-project notes.
+Status: Phase 1 notes written — one file per project, each pinned to an
+inspected commit with `path:line` citations and a licence section.
 
 | project | form | licence | what to take |
 |---|---|---|---|
@@ -13,5 +14,10 @@ Gazz's `docs/research/open-source.md` lists six further projects worth sweeping 
 Phase 1 (OppoPodsManager, 1812z/OppoPods, cracked-oneplus-buds,
 oneplus_buds3_pro_python, OpenPeats, …).
 
+Deep notes: `prior-art/gazzasaurusrex.md`, `prior-art/leaf-lsgtky-oppopods.md`,
+`prior-art/osp54-oppo-pods.md`, `prior-art/buildscript-dev-omarchy-oneplus-experience.md`.
+
 Known corroborations / conflicts are tracked in `../claims-matrix.md`.
-Notable: `0x0105` shape corroborated; channel 12-vs-15 (OQ-3); `0x0205`-vs-`0x0201` (OQ-2).
+Notable: `0x0105` shape corroborated (Gazz); ANC bitmap + modeType map (Leaf);
+channel 12-vs-15 (OQ-3); `0x0205`-vs-`0x0201` (OQ-2); Buds 3 id
+`063C14` vs `045010` (claim 18).
