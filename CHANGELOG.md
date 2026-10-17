@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- Package refactor: the single-file CLI is now `melodyctl/` (`protocol`,
+  `transport`, `errors`, `cli`) with `melodyctl.py` kept as a shim for running
+  from a checkout; the installed console script is unchanged. No behaviour
+  change - golden decoder tests still pass. Device profiles generated from the
+  HeyMelody whitelist ship as package data (`melodyctl/data/profiles.json`).
+
 ## [1.2.2] - 2026-10-17
 
 ### Fixed

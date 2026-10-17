@@ -20,7 +20,10 @@ classifiers = [
 ]
 
 [project.scripts]
-melodyctl = "melodyctl:main"
+melodyctl = "melodyctl.cli:main"
 
-[tool.setuptools]
-py-modules = ["melodyctl"]
+[tool.setuptools.packages.find]
+include = ["melodyctl*"]
+
+[tool.setuptools.package-data]
+melodyctl = ["data/*.json"]

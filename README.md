@@ -103,10 +103,11 @@ A DankMaterialShell (Quickshell) widget lives in the **`dms-plugins`** repo
 ## Files
 
 ```
-melodyctl.py            the CLI (single file, no third-party deps)
+melodyctl/              the CLI package (protocol, transport, cli; stdlib only)
+melodyctl.py            thin shim so `python3 melodyctl.py ...` keeps working
 daemon/                 optional battery daemon + systemd unit
-tools/                  reverse-engineering helpers (probes, whitelist decrypt)
-docs/protocol.md        wire format, command ids, gesture codes
+tools/                  helper scripts (probes, whitelist decrypt, profile build)
+docs/protocol/          wire format, command ids, gesture codes (per-command docs)
 whitelist.json          decrypted HeyMelody device whitelist (device configs)
 ```
 

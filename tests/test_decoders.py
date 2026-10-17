@@ -8,7 +8,7 @@ Run: python3 -m unittest discover -s tests -t .
 """
 import unittest
 
-import melodyctl as m
+from melodyctl import protocol as m
 
 CAPS_PAYLOAD = bytes.fromhex("00 ff 63")
 VERSION_PAYLOAD = bytes.fromhex(
