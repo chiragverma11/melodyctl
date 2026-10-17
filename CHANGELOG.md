@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.2.2] - 2026-10-17
+
+### Fixed
+- `eq` misread `0x0105`: it is not an EQ table. The payload is `status`,
+  `count`, then ASCII triples `(component, kind, value)` where kind 2 is the
+  component firmware. The command is now `fw` (left/right/case firmware), with
+  `--raw` and `--json` showing all records. ETI81 has no EQ - `0x0406` is not
+  advertised by the device; `eq-set` stays for other models (experimental).
+
 ## [1.2.1] - 2026-10-16
 
 ### Fixed

@@ -132,8 +132,7 @@ reference.
   but differ in feature set; the RFCOMM channel is discovered by the app via
   SDP (two service UUIDs are in use), while this tool currently uses channel
   **12**.
-- **No EQ control** (the device ignores EQ writes) and **no noise reduction**
-  (not a feature on ETI81).
+- **No EQ and no noise reduction** - neither is a feature of ETI81.
 - Firmware flashing is intentionally out of scope.
 
 ## License

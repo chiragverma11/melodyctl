@@ -15,11 +15,11 @@ Protocol (reverse engineered from HeyMelody's com.oplus.melody.btsdk):
       LEN  = 7 + len(payload)            (single-byte length for small frames)
 
   Commands used here (16-bit "cmd" ids, poll = 0x01xx, set = 0x04xx):
-      0x0100 capability  0x0103 device info  0x0105 EQ read
+      0x0100 capability  0x0103 device info  0x0105 component versions
       0x0106 battery     0x0108 gestures     0x0401 set gesture
   The device's capability bitmap (reply to 0x0100) is authoritative for which
-  commands are supported. On ETI81 EQ (0x0406) is read-only and game *sound*
-  (0x0423) is unsupported, but game *mode* is a feature switch:
+  commands are supported. On ETI81 there is no EQ (0x0406 is not advertised)
+  and game *sound* (0x0423) is unsupported, but game *mode* is a feature switch:
       0x0403  [featureId, enable]     featureId 6 = game mode
   Touch gestures are readable (0x0108) and writable (0x0401). Async device
   events need subscribe (0x0200) then register (0x0201 [eventId]); pushes
@@ -35,7 +35,7 @@ import sys
 import time
 import traceback
 
-__version__ = "1.2.1"
+__version__ = "1.2.2"
 
 ADDR_DEFAULT = (os.environ.get("MELODYCTL_ADDR")
                 or os.environ.get("ENCO_ADDR", "6C:0D:E1:5F:DB:4D"))
@@ -54,7 +54,7 @@ class MelodyctlError(Exception):
 CMD_CAPS = 0x0100            # getRemoteCapability -> bitmap of supported groups
 CMD_HELLO = CMD_CAPS
 CMD_INFO = 0x0103
-CMD_EQ_GET = 0x0105
+CMD_VERSION_GET = 0x0105     # status, count, then ASCII triples (component,kind,value)
 CMD_BATT_GET = 0x0106
 CMD_GESTURES_GET = 0x0108
 CMD_EQ_SET = 0x0406          # payload: [protocol_index]  (unsupported on ETI81)
@@ -75,7 +75,7 @@ RESP_FLAG = 0x8000
 COMPONENT = {1: "left", 2: "right", 3: "case"}
 EAR = {1: "left", 2: "right", 4: "both"}
 CMD_NAMES = {
-    CMD_CAPS: "capability", CMD_INFO: "device_info", CMD_EQ_GET: "eq_read",
+    CMD_CAPS: "capability", CMD_INFO: "device_info", CMD_VERSION_GET: "version",
     CMD_BATT_GET: "battery", CMD_EQ_SET: "eq_set", CMD_EQ_CUSTOM_SET: "eq_custom_set",
     CMD_GAMESOUND_SET: "game_sound_set", CMD_GESTURES_SET: "gesture_set",
     CMD_GESTURES_GET: "gestures", CMD_SWITCH_FEATURE: "switch_feature",
@@ -329,10 +329,10 @@ class Buds:
                 return out
         raise ValueError("no battery response")
 
-    def eq_presets(self) -> list[dict]:
-        """Decode the EQ preset table (cmd 0x0105 response)."""
-        for f in self.send(CMD_EQ_GET):
-            return decode_eq_table(f["payload"])
+    def versions(self) -> list[dict]:
+        """Decode the component version records (cmd 0x0105 response)."""
+        for f in self.send(CMD_VERSION_GET):
+            return decode_version_records(f["payload"])
         return []
 
     def set_eq(self, index: int) -> list[dict]:
@@ -439,24 +439,35 @@ def decode_gestures(payload: bytes) -> list[dict]:
     return out
 
 
-def decode_eq_table(payload: bytes) -> list[dict]:
-    """Decode the EQ preset response payload.
+def decode_version_records(payload: bytes) -> list[dict]:
+    """Decode the component version response payload (cmd 0x0105).
 
-    Observed payload = b'\\x00\\x09' + b'1,1,9,1,2,165,1,4,0,2,1,0,...' (ASCII CSV).
-    The CSV is a flat list of 9-number groups, one per preset; the first number
-    of each group is the preset index used by ``eq-set``.
+    Payload = status, count, then an ASCII CSV of ``count`` triples
+    ``(component, kind, value)``. Components 1/2/3 are left/right/case; kind 2
+    is the component firmware (kinds 1 and 4 are not yet interpreted).
+    Observed on ETI81: left 165, right 165, case 118.
     """
+    records: list[dict] = []
+    if len(payload) < 2:
+        return records
+    count = payload[1]
     text = payload[2:].decode("ascii", "replace")
     nums: list[int] = []
     for tok in text.split(","):
         tok = tok.strip()
         if tok.lstrip("-").isdigit():
             nums.append(int(tok))
-    presets = []
-    for i in range(0, len(nums) - 8, 9):
-        g = nums[i:i + 9]
-        presets.append({"index": g[0], "values": g[1:]})
-    return presets
+    for i in range(0, min(len(nums), count * 3) - 2, 3):
+        records.append({"component": nums[i], "kind": nums[i + 1],
+                        "value": nums[i + 2]})
+    return records
+
+
+def _fmt_versions(records: list[dict]) -> str:
+    by = {(r["component"], r["kind"]): r["value"] for r in records}
+    parts = [f"{name}={by[(comp, 2)]}" for comp, name in COMPONENT.items()
+             if (comp, 2) in by]
+    return "  ".join(parts) or "(no version data)"
 
 
 def _fmt_battery(b: dict) -> str:
@@ -553,11 +564,12 @@ def main(argv: list[str] | None = None) -> int:
     p_gs.add_argument("-l", "--list", action="store_true",
                       help="print the gesture value tables and exit (no device connection)")
 
-    p_eq = sub.add_parser("eq", help="read EQ preset table")
-    p_eq.add_argument("--json", action="store_true")
-    p_eq.add_argument("--raw", action="store_true")
+    p_fw = sub.add_parser("fw", help="read component versions (buds/case firmware)")
+    p_fw.add_argument("--json", action="store_true")
+    p_fw.add_argument("--raw", action="store_true")
 
-    p_eqs = sub.add_parser("eq-set", help="set EQ preset by protocol index")
+    p_eqs = sub.add_parser(
+        "eq-set", help="select EQ preset by protocol index (other models; experimental)")
     p_eqs.add_argument("index", type=lambda v: int(v, 0))
 
     p_game = sub.add_parser("game", help="toggle game (low-latency) mode")
@@ -623,8 +635,6 @@ def main(argv: list[str] | None = None) -> int:
                 if CMD_GAMESOUND_SET in caps:
                     feats.append("game-sound")
                 print("features:", ", ".join(feats) or "(none)")
-                if CMD_EQ_SET not in caps:
-                    print("note: EQ is read-only on this model.")
             return 0
 
         if args.cmd == "gestures":
@@ -687,19 +697,21 @@ def main(argv: list[str] | None = None) -> int:
                   f"function={fn} -> ack {acks} ({'ok' if ok else 'rejected'})")
             return 0 if ok else 1
 
-        if args.cmd == "eq":
+        if args.cmd == "fw":
             with Buds(args.addr) as conn:
-                frames = conn.send(CMD_EQ_GET)
+                frames = conn.send(CMD_VERSION_GET)
             if not frames:
-                print("no EQ response", file=sys.stderr)
+                print("no version response", file=sys.stderr)
                 return 1
             payload = frames[0]["payload"]
             if args.raw:
                 print(payload.hex(" ").upper())
-            elif args.json:
-                print(json.dumps(decode_eq_table(payload)))
+                return 0
+            records = decode_version_records(payload)
+            if args.json:
+                print(json.dumps(records))
             else:
-                print(json.dumps(decode_eq_table(payload), indent=2))
+                print(_fmt_versions(records))
             return 0
 
         if args.cmd == "eq-set":
