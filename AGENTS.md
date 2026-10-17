@@ -53,6 +53,7 @@ Enco Buds (ETI81, product id `062410`)** unless a claim says otherwise.
 | `whitelist.json` | decrypted HeyMelody device whitelist (`compatWhiteList`, 85 devices) |
 | `docs/` | protocol, devices, research, findings — the truth |
 | `tools/` | probes (`rfcomm_scan`, `opo_probe`, …), decrypt + generators |
+| `tests/` | stdlib unittest: golden decoders (ETI81 captures), Phase 4 refactor regression |
 | `daemon/` | optional battery daemon for bars |
 
 ## On-hardware recipes
