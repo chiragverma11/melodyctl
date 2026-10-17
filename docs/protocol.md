@@ -3,6 +3,10 @@
 Reverse engineered from HeyMelody (`com.heytap.headset`, `com.oplus.melody.btsdk`)
 and verified against an **OPPO Enco Buds (ETI81)**, whitelist id `062410`.
 
+> **Status:** this file is kept as the original single-file reference.
+> Per-command docs now live under `docs/protocol/` — see
+> [`docs/protocol/index.md`](protocol/index.md).
+
 ## Transport
 
 - **Bluetooth Classic RFCOMM (SPP)**. The app discovers the service via SDP
