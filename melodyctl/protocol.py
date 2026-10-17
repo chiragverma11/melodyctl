@@ -10,7 +10,7 @@ CMD_INFO = 0x0103
 CMD_VERSION_GET = 0x0105     # status, count, then ASCII triples (component,kind,value)
 CMD_BATT_GET = 0x0106
 CMD_GESTURES_GET = 0x0108
-CMD_ANC_QUERY = 0x010c       # payload 01 01; ETI81 replies bare 02 (see docs/protocol/commands/anc.md)
+CMD_ANC_QUERY = 0x010c       # payload 01 01; replies type-tagged; ETI81 bare 02 = no bitmap (docs/protocol/commands/anc.md)
 CMD_EQ_SET = 0x0406          # payload: [protocol_index]  (unsupported on ETI81)
 CMD_EQ_CUSTOM_SET = 0x0418   # payload: custom EQ band data
 CMD_GAMESOUND_SET = 0x0423   # payload: [type, enable]    (unsupported on ETI81)
@@ -327,8 +327,9 @@ def decode_version_records(payload: bytes) -> list[dict]:
     """Decode the component version response payload (cmd 0x0105).
 
     Payload = status, count, then an ASCII CSV of ``count`` triples
-    ``(component, kind, value)``. Components 1/2/3 are left/right/case; kind 2
-    is the component firmware (kinds 1 and 4 are not yet interpreted).
+    ``(component, kind, value)``. Components 1/2/3 are left/right/case; kind 1
+    = hardware, kind 2 = running firmware, kind 3 = backup, kind 4 = vendor
+    code.
     Observed on ETI81: left 165, right 165, case 118.
     """
     records: list[dict] = []

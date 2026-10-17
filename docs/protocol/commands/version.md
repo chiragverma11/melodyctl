@@ -13,8 +13,12 @@
   display, on prior-art models: Buds Pro 541/541/510, Buds Pro 2 196/196/101
   [prior:gazz@abe70f4]. Left == right and the case differs in every capture so
   far, so `melodyctl fw` should generalise [untested].
-- `kind 1` and `kind 4` records are returned but **not yet interpreted**
-  (ETI81 kind 1 = 9/0/33, kind 4 = 0/0/0) → OQ-4.
+- Record kinds (app decode): `1` = hardware code, `2` = running (the component
+  firmware shown in the app), `3` = backup firmware, `4` = vendor code
+  [apk:DeviceVersionDTO#<init>] [apk:DeviceVersionDTO#fromVersionList]; the
+  app displays the running record, falling back to the backup
+  [apk:VersionInfo#getDeviceVersion]. ETI81 carries kind 1 = 9/0/33, kind 2 =
+  165/165/118, kind 4 = 0/0/0 and no kind-3 rows → OQ-4 resolved.
 - Prior-art parser note: firmware is formatted only when both left and right
   kind-2 records exist [prior:gazz@abe70f4].
 - History: up to v1.2.1 this payload was mislabelled as "EQ presets"; fixed in

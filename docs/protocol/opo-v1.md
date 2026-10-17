@@ -18,23 +18,24 @@ Only ETI81 is verified by us. Status legend:
 | `0x0107` | poll | unlocked, not interpreted | [commands/unmapped.md](commands/unmapped.md) |
 | `0x0108` | poll | verified | [commands/gestures.md](commands/gestures.md) |
 | `0x0109` | poll | unlocked, not interpreted | [commands/unmapped.md](commands/unmapped.md) |
-| `0x010c` | poll | verified query; bare `02` reply, meaning open (OQ-1) | [commands/anc.md](commands/anc.md) |
+| `0x010c` | poll | verified query; ETI81 bare `02` = no bitmap (type-tagged, OQ-1 resolved) | [commands/anc.md](commands/anc.md) |
 | `0x010d` | poll | not advertised; prior only [prior:gazz@abe70f4] [prior:leaf@feb7b70] | [commands/unmapped.md](commands/unmapped.md) |
 | `0x0200` | write | verified | [commands/notifications.md](commands/notifications.md) |
 | `0x0201` | write | verified (OQ-2 vs `0x0205`) | [commands/notifications.md](commands/notifications.md) |
 | `0x0204` | push | verified; `0xF1` = user interaction | [commands/notifications.md](commands/notifications.md) |
 | `0x0205` | write | prior only (OQ-2) [prior:gazz@abe70f4] | [commands/notifications.md](commands/notifications.md) |
-| `0x0400` | write | unlocked, not interpreted | [commands/unmapped.md](commands/unmapped.md) |
+| `0x0400` | write | unlocked; app name **find mode** (find earbuds); payload not documented [apk:SetCommandStateInfo#isFindModeRsp] | [commands/unmapped.md](commands/unmapped.md) |
 | `0x0401` | write | verified — ack `0`/`1` | [commands/gestures.md](commands/gestures.md) |
 | `0x0402` | write | unlocked, not interpreted | [commands/unmapped.md](commands/unmapped.md) |
 | `0x0403` | write | verified — feature 6 = game mode | [commands/feature-switch.md](commands/feature-switch.md) |
 | `0x0404` | write | unlocked; ETI81 has no ANC; mechanism prior only [prior:leaf@feb7b70] | [commands/anc.md](commands/anc.md) |
-| `0x0405` | write | unlocked, not interpreted | [commands/unmapped.md](commands/unmapped.md) |
+| `0x0405` | write | unlocked; app name **compactness detection** (fit detection); payload not documented [apk:SetCommandStateInfo#isCompactnessDetectRsp] | [commands/unmapped.md](commands/unmapped.md) |
 | `0x0406` | write | not advertised (no EQ); prior only [prior:leaf@feb7b70] [prior:gazz@abe70f4] | [commands/unmapped.md](commands/unmapped.md) |
 | `0x0408` | write | unlocked, not interpreted | [commands/unmapped.md](commands/unmapped.md) |
 | `0x0409` | write | unlocked, not interpreted | [commands/unmapped.md](commands/unmapped.md) |
 | `0x0416` | write | unlocked, not interpreted | [commands/unmapped.md](commands/unmapped.md) |
 | `0x0423` | write | not advertised on ETI81 | [commands/unmapped.md](commands/unmapped.md) |
+| `0x0f00` | write | not advertised (debug group 23); app name switch debug [apk:SetCommandStateInfo#isSwitchDebugRsp] | [commands/unmapped.md](commands/unmapped.md) |
 
 ## Capability bitmap (`0x0100` reply)
 
@@ -52,7 +53,9 @@ names [apk:p026b8.a]. As currently documented, ETI81's bitmap unlocks:
 
 - `0x0100`, `0x0103` and the `0x02xx` notification family are not gated by the
   bitmap; they work regardless [hw:ETI81 2026-10-17].
-- Which *feature* each bitmap group represents is not yet interpreted (OQ-5);
-  the command expansion above is all that is currently documented.
+- The bitmap is a list of capability-table indexes (bit `i` = group `i`); a
+  group bundles the command ids the app unlocks together (often a feature's
+  read + write pair). Full 69-group table in
+  [commands/handshake.md](commands/handshake.md) (OQ-5 resolved).
 - There is no auth token on ETI81: reads and writes work with only the hello
   frame [hw:ETI81 2026-10-17]; newer-device auth is prior art only → OQ-6.

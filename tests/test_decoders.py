@@ -63,7 +63,7 @@ class TestDecoders(unittest.TestCase):
         self.assertEqual(INFO_PAYLOAD[1:][::-1].hex(), "062410")
 
     def test_anc_probe_is_bare_byte(self):
-        # ETI81: 0x010c answers one byte, no ANC bitmap (open question OQ-1)
+        # ETI81: 0x010c answers one type byte, no ANC bitmap (OQ-1 resolved)
         self.assertEqual(ANC_PROBE_PAYLOAD, b"\x02")
 
 

@@ -29,6 +29,14 @@ to [Semantic Versioning](https://semver.org/).
   table, explicit verification ladder, linked `dms-plugins` widget section, and
   corrected daemon instructions. Whitelist/APK regeneration moved to
   `AGENTS.md`.
+- Open-question closures from the HeyMelody APK: `0x010c` replies are
+  type-tagged and ETI81's bare `02` is not a mode (OQ-1), version kinds 1-4 are
+  hardware/running/backup/vendorCode (OQ-4), caps bits are capability-table
+  group indexes with the full 69-group table now in
+  `docs/protocol/commands/handshake.md` (OQ-5), and feature-switch ids are
+  device data rather than app constants (OQ-7); `0x0400` is find mode and
+  `0x0405` is compactness detection (OQ-8 partial). Details:
+  `docs/research/open-questions.md`.
 
 ## [1.3.0] - 2026-10-17
 

@@ -71,7 +71,8 @@ Reply payload: `[00][count][(device, charging<<7 | level) * count]`.
 
 Reply payload: `[status][count]` then an ASCII CSV of `count` triples
 `(component, kind, value)`. Components 1/2/3 = left/right/case; kind 2 is the
-component firmware (kinds 1 and 4 not yet interpreted).
+component firmware (kind 1 = hardware, kind 3 = backup, kind 4 = vendor code -
+see commands/version.md).
 
 ETI81: left 165, right 165, case 118. The shape is cross-confirmed on other
 models (Buds Pro 541/541/510, Buds Pro 2 196/196/101 - Gazz's phone-verified

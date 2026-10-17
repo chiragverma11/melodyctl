@@ -321,7 +321,7 @@ def main(argv: list[str] | None = None) -> int:
                 "firmware": versions,
                 "battery": battery,
                 "anc_query": {"payload": anc_payload,
-                              "note": "raw 0x010c reply; not interpreted (OQ-1)"},
+                              "note": "raw 0x010c reply; type-tagged; no bitmap window on ETI81"},
             }
             print(json.dumps(report, indent=2))
             return 0
@@ -383,7 +383,7 @@ def main(argv: list[str] | None = None) -> int:
                     return 1
                 print(f"raw reply : {payload.hex(' ').upper()}")
                 if payload == b"\x02":
-                    print("state     : not interpreted (bare 02, OQ-1)")
+                    print("state     : no noise-mode info (bare 02 type reply, no bitmap)")
                     if profile is not None and not modes:
                         print("note      : this device has no ANC in its whitelist entry")
                 elif active is not None:

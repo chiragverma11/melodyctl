@@ -7,11 +7,26 @@ models and **untested** here.
 ## Query (`0x010c` → `0x810c`)
 
 - Request payload `01 01` [hw:ETI81 2026-10-17] [prior:gazz@abe70f4]
-  [prior:leaf@feb7b70].
-- ETI81 answers a **single byte `02`** — no `01 01` bitmap window
+  [prior:leaf@feb7b70]; prior art also documents `03 01` (supported modes),
+  `02 01`/`02 03`/`02 04` (switch items) and `04 01` (intelligent NC)
+  [prior:leaf@feb7b70] [untested].
+- Replies are **type-tagged**: the first byte is an encoding type — `1`/`5`
+  are followed by a mode-bitmap window (bit `i` = mode index `i`, LSB-first
+  per byte), `2` is followed by one noise **level** byte, any other type
+  carries no further data [apk:CurrentNoiseModeInfo#<init>]
+  [apk:CurrentNoiseModeInfo#isModeBitmaskType]; the app counts a reply as
+  noise-mode info only for types 1/5
+  [apk:CurrentNoiseModeInfo#isNoiseReductionModeInfo]. A second app framing,
+  `[action][type][value ≤4 bytes LE]`, exists for noise-reduction frames
+  [apk:NoiseReductionInfo#<init>].
+- ETI81 answers a **single byte `02`** — no bitmap window
   [hw:ETI81 2026-10-17] (see
   [captures/2026-10-17-eti81-baseline.md](captures/2026-10-17-eti81-baseline.md)).
-  Meaning unknown → OQ-1; do not classify it as a mode.
+  A 1-byte frame carries neither a bitmap window nor an
+  `[action][type][value]` triple, so it is **not a mode** (it was also the
+  only non-zero leading byte in that session). Decoder contract: only a
+  type-`1`/`5` bitmap reply can name an active mode — anything else prints as
+  "no noise-mode info" → OQ-1 resolved.
 - Prior art reads a `01 01 <bitmap>` window and takes the lowest set bit
   through the model's `protocolIndex` table [prior:leaf@feb7b70]
   [prior:gazz@abe70f4] [untested].
@@ -37,8 +52,9 @@ models and **untested** here.
 
 ## In melodyctl (Phase 5)
 
-- `melodyctl anc` sends `01 01` and prints the raw reply; on ETI81 it shows the
-  uninterpreted `02` and notes the device has no ANC [hw:ETI81 2026-10-17].
+- `melodyctl anc` sends `01 01` and prints the raw reply; on ETI81 it shows
+  `02` as "no noise-mode info" (type byte, no bitmap) and notes the device
+  has no ANC [hw:ETI81 2026-10-17].
 - `melodyctl anc set <mode>` builds `01 01 <bitmap>` from the device's
   whitelist table: bit = `protocolIndex` of the chosen mode, names from
   `modeType` (1 off / 2 transparency / 3 light / 4 deep / 5 nc / 6+10

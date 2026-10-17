@@ -43,6 +43,7 @@ and Buds Pro 2 (`196.196.101`) `[prior:gazz]`.
 
 ## Follow-ups
 
-- kinds 1 and 4 unexplained → OQ-4.
+- kinds 1 and 4 unexplained at capture time → OQ-4 (now resolved — see
+  `docs/research/open-questions.md`).
 - Same probe: `0x0103` → `00 10 24 06` (id `062410`); `0x010c` → bare `02`;
   `0x0100` → `00 ff 63`. See `docs/protocol/captures/2026-10-17-eti81-baseline.md`.
