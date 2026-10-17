@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.3.0] - 2026-10-17
 
 ### Added
 - `melodyctl device` - identify the connected earbuds (0x0103 product id, whitelist name, brand, capabilities, verification status).

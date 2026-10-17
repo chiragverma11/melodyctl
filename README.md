@@ -1,13 +1,16 @@
 # melodyctl
 
-Control **OPPO Enco Buds (ETI81)** from Linux over the same wire protocol
-HeyMelody uses: read per-ear battery, read/write touch gestures, toggle game
-mode, and watch for button events. No Android app, no BLE pairing dance -
-just Bluetooth Classic RFCOMM.
+Control **HeyMelody-family earbuds** (OPPO Enco, OnePlus Buds) from Linux over
+the same wire protocol HeyMelody uses: read per-ear battery, read/write touch
+gestures, toggle game mode, switch noise cancelling on ANC models, and watch
+for button events. No Android app, no BLE pairing dance - just Bluetooth
+Classic RFCOMM.
 
-> **Scope:** verified only on the **OPPO Enco Buds (ETI81 / whitelist id
-> `062410`)**. The underlying protocol (OPOv1 over SPP) is shared with other
-> OPPO / OnePlus earbuds, but nothing else is tested here - see
+> **Scope:** hardware-verified only on the **OPPO Enco Buds (ETI81 / whitelist
+> id `062410`)**. Device profiles for 85 HeyMelody models ship in the CLI
+> (whitelist-derived, `[untested]`); reads work on any of them, write commands
+> are gated to verified profiles unless `--force` is passed, and
+> `melodyctl report` is the fact-collection path for upgrading a model - see
 > [Limitations](#limitations).
 
 ## What you get
@@ -33,7 +36,7 @@ just Bluetooth Classic RFCOMM.
 - Your buds' Bluetooth address (defaults to `6C:0D:E1:5F:DB:4D`; override with
   `MELODYCTL_ADDR` or `--addr`)
 
-Only one RFCOMM connection is allowed at a time (it coexists fine with A2DP).
+Only one RFCOMM connection is allowed at a time.
 
 ## Install
 
@@ -57,6 +60,8 @@ python3 melodyctl.py --help                                   # or just run it i
 melodyctl battery                 # Left 80%  Right 100%  Case 70%
 melodyctl battery --json          # {"left":80,"right":100,"case":70}
 melodyctl caps                    # supported command ids + features
+melodyctl device                  # model, whitelist profile, verification status
+melodyctl report                  # paste-safe compatibility report (read-only)
 melodyctl gestures                # current gesture table
 melodyctl gesture-set --list      # every valid ear/button/action/function value
 
@@ -71,7 +76,9 @@ melodyctl watch                   # tap the buds to see live gesture events
 
 `gesture-set` accepts numbers or names, validates the combination against the
 device's advertised support, and refuses silently-invalid writes unless you
-pass `--force`.
+pass `--force`. All write commands (`game`, `gesture-set`, `eq-set`,
+`anc set`) first read the device's product id and require `--force` on models
+this project has not verified.
 
 ## Errors
 
@@ -84,8 +91,9 @@ $ melodyctl battery --json
 ```
 
 Codes: `busy` (another app holds the link), `refused`, `unreachable`,
-`no_adapter` (Bluetooth off), `timeout`, `no_bluetooth_support` (wrong Python),
-`error`. Set `MELODYCTL_DEBUG=1` to get the full traceback.
+`no_adapter` (Bluetooth off), `timeout`, `no_channel` (no RFCOMM channel
+accepted), `no_bluetooth_support` (wrong Python), `error`. Set
+`MELODYCTL_DEBUG=1` to get the full traceback.
 
 ## Battery daemon (optional)
 
@@ -128,16 +136,17 @@ The buds speak **OPOv1** over Bluetooth Classic RFCOMM (SPP). Frames are
 `AA | LEN | 00 00 | cmd_lo cmd_hi | seq | plen_lo plen_hi | payload` (little
 endian, response `cmd | 0x8000`). Battery is command `0x0106`; gestures are
 `0x0108` (read) / `0x0401` (write); game mode is the feature switch `0x0403`
-with feature id `6`. See [docs/protocol.md](docs/protocol.md) for the full
-reference.
+with feature id `6`. See [docs/protocol/](docs/protocol/index.md) for the
+per-command reference.
 
 ## Limitations
 
-- Verified on **ETI81 only**. Other OPPO / OnePlus models share the protocol
-  but differ in feature set; the RFCOMM channel is discovered by the app via
-  SDP (two service UUIDs are in use), while this tool currently uses channel
-  **12**.
-- **No EQ and no noise reduction** - neither is a feature of ETI81.
+- Hardware-verified on **ETI81 only**; the other 84 whitelist models are
+  profile-based and `[untested]` (reads open, writes gated).
+- Channel discovery is probe-based (12 → 15 → 1..30) because the Python
+  stdlib has no SDP; `--channel` / `MELODYCTL_CHANNEL` override it.
+- **No EQ on ETI81 and no ANC on ETI81** - neither is a feature of this model.
+  `anc` exists for ANC models but has not been tested on ANC hardware.
 - Firmware flashing is intentionally out of scope.
 
 ## License
