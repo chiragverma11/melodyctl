@@ -11,7 +11,7 @@ allowed **only** in this file.
 | OQ-3 | Is ETI81's RFCOMM channel (12) discoverable via SDP? Prior art conflicts: osp54 says "12 exclusively", buildscript + Gazz use 15 on their devices | transport must not hardcode | probe discovery shipped (12 → 15 → 1..30, verified on ETI81, `--channel` override); SDP itself still unimplemented — resolve when a non-12-channel device is available | open (probe shipped) |
 | OQ-4 | Version-triple kinds 1 and 4 (ETI81: kind1 = 9/0/33, kind4 = 0/0/0) | complete version docs | APK; compare with other captures | open |
 | OQ-5 | Caps bitmap decode — what do `ff 63` bits map to? | capability gating correctness | APK (`getRemoteCapability`), re-verify current unlocked list | open |
-| OQ-6 | Does ANC query need auth (legacy HELLO + `0x8500` REGISTER token) on newer devices? | Phase 5 query design | prior-art cross-check; cannot test here | open |
+| OQ-6 | Does ANC query need auth (legacy HELLO + `0x8500` REGISTER token) on newer devices? | Phase 5 query design | prior-art cross-check; cannot test here. Our set path sends without the dance - if an ANC-device report shows sets failing, revisit | open |
 | OQ-7 | `0x0403` feature ids beyond 6 (game mode) | feature-switch scope | APK feature table | open |
 | OQ-8 | Unknown unlocked commands: `0x0107 0x0109 0x0400 0x0402 0x0405 0x0408 0x0409 0x0416` | complete protocol coverage | APK | open |
 | OQ-9 | Battery components beyond L/R/case on some models? | battery generalisation | whitelist + prior art | open |

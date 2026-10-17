@@ -35,5 +35,19 @@ models and **untested** here.
 - ETI81: `0x0404` is bitmap-unlocked but the device has no ANC, so our CLI
   never sends it [hw:ETI81 2026-10-17].
 
+## In melodyctl (Phase 5)
+
+- `melodyctl anc` sends `01 01` and prints the raw reply; on ETI81 it shows the
+  uninterpreted `02` and notes the device has no ANC [hw:ETI81 2026-10-17].
+- `melodyctl anc set <mode>` builds `01 01 <bitmap>` from the device's
+  whitelist table: bit = `protocolIndex` of the chosen mode, names from
+  `modeType` (1 off / 2 transparency / 3 light / 4 deep / 5 nc / 6+10
+  adaptive / 7 smart / 8 medium) [wl] [prior:leaf@feb7b70]; `bit:N` selects a
+  raw bit. After the write it re-queries `0x010c` ~1 s later and compares -
+  the `0x8404` ack alone is not proof [prior:gazz@abe70f4].
+- Writes go through the verified-profile gate; with no ANC hardware on hand
+  the whole set path is [untested] (OQ-6: newer devices may need the auth
+  dance).
+
 Related: [opo-v1.md](../opo-v1.md) (master table),
 [commands/unmapped.md](unmapped.md) (`0x0405`).

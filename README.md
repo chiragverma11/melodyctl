@@ -19,6 +19,7 @@ just Bluetooth Classic RFCOMM.
 | `melodyctl caps` | Decode the device capability bitmap |
 | `melodyctl device` | Identify the connected device (product id → whitelist profile) |
 | `melodyctl report` | Read-only compatibility report, paste-safe (`--with-addr` includes the address) |
+| `melodyctl anc` | Show noise-cancelling state; `anc set <mode>` on ANC models |
 | `melodyctl gestures` | Read the touch-gesture table |
 | `melodyctl gesture-set` | Assign a gesture function |
 | `melodyctl game on\|off` | Toggle low-latency game mode |
@@ -64,6 +65,7 @@ melodyctl gesture-set left  tap  single play/pause
 melodyctl gesture-set right tap  triple game        # game mode on triple-tap
 melodyctl gesture-set both  tap  long   vol+        # both ears, hold = volume up
 melodyctl game on
+melodyctl anc                     # noise-cancelling state (anc set off/nc/deep/... on ANC models)
 melodyctl watch                   # tap the buds to see live gesture events
 ```
 

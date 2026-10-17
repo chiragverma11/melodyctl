@@ -26,6 +26,11 @@ FEATURE_GAME_MODE = 6
 NOTIFY_USER_INTERACTION = 0xF1   # 241: user tapped a bud
 NOTIFY_NAMES = {1: "state_1", 2: "state_2", 241: "user_interaction", 242: "state_242"}
 
+# ANC modeType names [prior:leaf@feb7b70]; 6 and 10 both render "adaptive".
+# Types 11-13 (X4 children) have no published meaning - rendered as "typeN".
+MODE_NAMES = {1: "off", 2: "transparency", 3: "light", 4: "deep", 5: "nc",
+              6: "adaptive", 7: "smart", 8: "medium", 10: "adaptive"}
+
 RESP_FLAG = 0x8000
 COMPONENT = {1: "left", 2: "right", 3: "case"}
 EAR = {1: "left", 2: "right", 4: "both"}
@@ -179,6 +184,22 @@ def decode_product_id(payload: bytes) -> str | None:
     if len(payload) < 4:
         return None
     return payload[1:4][::-1].hex().upper()
+
+
+def anc_bitmap(protocol_index: int) -> bytes:
+    """Leaf-style ANC bitmap: bit idx%8 of byte idx//8; length idx//8 + 1."""
+    n = protocol_index // 8 + 1
+    b = bytearray(n)
+    b[protocol_index // 8] |= 1 << (protocol_index % 8)
+    return bytes(b)
+
+
+def decode_anc_bitmap(bitmap: bytes) -> int | None:
+    """Lowest set bit index of an ANC bitmap, or None when no bit is set."""
+    for i, byte in enumerate(bitmap):
+        if byte:
+            return i * 8 + ((byte & -byte).bit_length() - 1)
+    return None
 
 
 def decode_gestures(payload: bytes) -> list[dict]:

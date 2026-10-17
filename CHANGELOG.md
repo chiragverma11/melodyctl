@@ -10,6 +10,7 @@ to [Semantic Versioning](https://semver.org/).
 - `melodyctl report` - read-only, sanitised compatibility report (product id, caps bitmap, firmware, battery, raw ANC probe, transport channel); `--with-addr` opts into the Bluetooth address.
 - Channel discovery: connect probes 12 -> 15 -> 1..30 when no channel is known (stdlib has no SDP) and sticks with the first that accepts; `--channel` / `MELODYCTL_CHANNEL` override.
 - Write gating: `game`, `eq-set` and `gesture-set` verify the product id via 0x0103 and refuse writes on non-verified profiles unless `--force` (new `--force` on `game` and `eq-set`).
+- `melodyctl anc` - show noise-cancelling state (0x010c) and `anc set <mode>` built from the device's whitelist mode table (bit = protocolIndex; names from modeType), verified by re-query; gated like other writes and untested without ANC hardware.
 
 ### Changed
 - Package refactor: the single-file CLI is now `melodyctl/` (`protocol`,

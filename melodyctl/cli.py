@@ -10,7 +10,7 @@ import traceback
 
 from . import __version__, devices
 from .errors import emit_error
-from .protocol import ACTION_ALIASES, ACTION_FUNCTIONS, ACTION_NAMES, BUTTON_ALIASES, BUTTON_NAMES, CMD_ANC_QUERY, CMD_BATT_GET, CMD_CAPS, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD_GESTURES_GET, CMD_GESTURES_SET, CMD_INFO, CMD_NOTIFY_PUSH, CMD_SWITCH_FEATURE, CMD_VERSION_GET, EAR, EAR_ALIASES, FUNCTION_ALIASES, FUNCTION_NAMES, NOTIFY_NAMES, NOTIFY_USER_INTERACTION, _fmt_battery, _fmt_versions, decode_caps, decode_product_id, decode_user_interaction, decode_version_records, parse_frames
+from .protocol import ACTION_ALIASES, ACTION_FUNCTIONS, ACTION_NAMES, BUTTON_ALIASES, BUTTON_NAMES, CMD_ANC_QUERY, CMD_BATT_GET, CMD_CAPS, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD_GESTURES_GET, CMD_GESTURES_SET, CMD_INFO, CMD_NOTIFY_PUSH, CMD_SWITCH_FEATURE, CMD_VERSION_GET, EAR, EAR_ALIASES, FUNCTION_ALIASES, FUNCTION_NAMES, MODE_NAMES, NOTIFY_NAMES, NOTIFY_USER_INTERACTION, _fmt_battery, _fmt_versions, anc_bitmap, decode_anc_bitmap, decode_caps, decode_product_id, decode_user_interaction, decode_version_records, parse_frames
 from .transport import ADDR_DEFAULT, Buds
 
 
@@ -70,6 +70,26 @@ def _write_gate(pid: str | None, action: str, force: bool) -> bool:
     return False
 
 
+def _anc_label(mode: dict | None) -> str | None:
+    if not mode or mode.get("mode_type") is None:
+        return None
+    return MODE_NAMES.get(mode["mode_type"], f"type{mode['mode_type']}")
+
+
+def _anc_index(value: str, profile: dict | None) -> int | None:
+    """Resolve an 'anc set' argument: a mode name (via MODE_NAMES) or bit:N."""
+    v = value.strip().lower()
+    if v.startswith("bit:"):
+        try:
+            return int(v[4:], 0)
+        except ValueError:
+            return None
+    for m in devices.anc_modes(profile):
+        if MODE_NAMES.get(m.get("mode_type")) == v and m.get("protocol_index") is not None:
+            return m["protocol_index"]
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="melodyctl", description="OPPO Enco Buds control (OPOv1/RFCOMM)")
     ap.add_argument("-V", "--version", action="version", version=f"melodyctl {__version__}")
@@ -94,6 +114,14 @@ def main(argv: list[str] | None = None) -> int:
     p_rep = sub.add_parser("report", help="read-only compatibility report (safe to paste in an issue)")
     p_rep.add_argument("--with-addr", action="store_true",
                        help="include the Bluetooth address (default: omitted)")
+
+    p_anc = sub.add_parser("anc", help="show noise-cancelling state, or 'anc set <mode>'")
+    p_anc.add_argument("action", nargs="?", choices=["set"], help="omit to just show the current mode")
+    p_anc.add_argument("mode", nargs="?",
+                       help="mode name (off, transparency, nc, deep, smart, ...) or bit:N")
+    p_anc.add_argument("--json", action="store_true")
+    p_anc.add_argument("-f", "--force", action="store_true",
+                       help="send even if the product id is not a verified profile")
 
     p_caps = sub.add_parser("caps", help="show device capability bitmap / supported commands")
     p_caps.add_argument("--json", action="store_true")
@@ -251,6 +279,73 @@ def main(argv: list[str] | None = None) -> int:
             }
             print(json.dumps(report, indent=2))
             return 0
+
+        if args.cmd == "anc":
+            if args.action == "set" and not args.mode:
+                print("anc set: missing mode; run 'melodyctl anc' to list this device's modes",
+                      file=sys.stderr)
+                return 2
+            with Buds(args.addr) as conn:
+                pid = _identify(conn)
+                profile = devices.profile_for(pid)
+                if args.action == "set":
+                    if not _write_gate(pid, "anc", args.force):
+                        return 2
+                    table = devices.anc_modes(profile)
+                    if profile is not None and not table:
+                        print(f"error: {profile.get('name', pid)} has no ANC in its whitelist "
+                              f"entry (no noiseReductionMode); there is nothing to switch.",
+                              file=sys.stderr)
+                        return 2
+                    idx = _anc_index(args.mode, profile)
+                    if idx is None:
+                        print(f"error: unknown ANC mode {args.mode!r} for this device; "
+                              f"run 'melodyctl anc' to list the whitelist modes.", file=sys.stderr)
+                        return 2
+                    bitmap = anc_bitmap(idx)
+                    resp = conn.anc_set(bitmap)
+                    ack = resp[0]["payload"][0] if resp and resp[0]["payload"] else None
+                    time.sleep(1.0)
+                    q = conn.anc_query()
+                    qp = q[0]["payload"] if q else b""
+                    active = decode_anc_bitmap(qp[2:]) if qp[:2] == b"\x01\x01" else None
+                    print(f"anc set {args.mode} -> bit {idx}, bitmap "
+                          f"{bitmap.hex(' ').upper()}, ack {ack}")
+                    print(f"read-back: {('bit ' + str(active)) if active is not None else 'no bitmap'}"
+                          f" ({'ok' if active == idx else 'NOT confirmed'})")
+                    return 0 if active == idx else 1
+                resp = conn.anc_query()
+                payload = resp[0]["payload"] if resp else b""
+                active = None
+                mode = None
+                if payload[:2] == b"\x01\x01":
+                    active = decode_anc_bitmap(payload[2:])
+                    mode = (devices.anc_mode_for_bit(profile, active)
+                            if active is not None else None)
+                modes = [{"name": _anc_label(m), "bit": m.get("protocol_index"),
+                          "mode_type": m.get("mode_type")}
+                         for m in devices.anc_modes(profile)]
+                if args.json:
+                    print(json.dumps({"product_id": pid,
+                                      "raw": payload.hex(" ").upper() or None,
+                                      "active_bit": active,
+                                      "active_mode": _anc_label(mode),
+                                      "modes": modes}))
+                    return 0
+                if not payload:
+                    print("no response to 0x010c", file=sys.stderr)
+                    return 1
+                print(f"raw reply : {payload.hex(' ').upper()}")
+                if payload == b"\x02":
+                    print("state     : not interpreted (bare 02, OQ-1)")
+                    if profile is not None and not modes:
+                        print("note      : this device has no ANC in its whitelist entry")
+                elif active is not None:
+                    print(f"active    : {_anc_label(mode) or 'unknown'} (bit {active})")
+                if modes:
+                    print("modes     : " + ", ".join(
+                        f"{m['name']}@{m['bit']}" for m in modes if m["name"]))
+                return 0
 
         if args.cmd == "caps":
             with Buds(args.addr) as conn:

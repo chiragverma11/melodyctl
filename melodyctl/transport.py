@@ -6,7 +6,7 @@ import socket
 import time
 
 from .errors import MelodyctlError
-from .protocol import CMD_BATT_GET, CMD_CAPS, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD_GESTURES_GET, CMD_GESTURES_SET, CMD_HELLO, CMD_NOTIFY_REG, CMD_NOTIFY_SUB, CMD_SWITCH_FEATURE, CMD_VERSION_GET, COMPONENT, FEATURE_GAME_MODE, RESP_FLAG, decode_caps, decode_gestures, decode_version_records, frame, parse_frames
+from .protocol import CMD_ANC_QUERY, CMD_ANC_SET, CMD_BATT_GET, CMD_CAPS, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD_GESTURES_GET, CMD_GESTURES_SET, CMD_HELLO, CMD_NOTIFY_REG, CMD_NOTIFY_SUB, CMD_SWITCH_FEATURE, CMD_VERSION_GET, COMPONENT, FEATURE_GAME_MODE, RESP_FLAG, decode_caps, decode_gestures, decode_version_records, frame, parse_frames
 
 
 ADDR_DEFAULT = (os.environ.get("MELODYCTL_ADDR")
@@ -198,6 +198,15 @@ class Buds:
     def set_game_mode(self, enable: bool) -> list[dict]:
         """Toggle game (low-latency) mode: feature switch 0x0403, feature 6."""
         return self.send(CMD_SWITCH_FEATURE, bytes([FEATURE_GAME_MODE, 1 if enable else 0]))
+
+    # ---- noise cancelling --------------------------------------------------
+    def anc_query(self) -> list[dict]:
+        """Query the active noise-cancelling state (0x010c -> 0x810c)."""
+        return self.send(CMD_ANC_QUERY, b"\x01\x01")
+
+    def anc_set(self, bitmap: bytes) -> list[dict]:
+        """Set the ANC bitmap (0x0404). The ack is not proof - re-query after."""
+        return self.send(CMD_ANC_SET, b"\x01\x01" + bitmap)
 
     # ---- notifications -----------------------------------------------------
     def notify_caps(self) -> list[int]:

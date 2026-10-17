@@ -59,6 +59,25 @@ def caps_summary(profile: dict) -> list[str]:
     return out
 
 
+def anc_modes(profile: dict | None) -> list[dict]:
+    """Flatten a whitelist ANC table: top-level modes, then their children."""
+    if not profile:
+        return []
+    flat: list[dict] = []
+    for m in profile.get("caps", {}).get("anc") or []:
+        flat.append(m)
+        flat.extend(m.get("children") or [])
+    return flat
+
+
+def anc_mode_for_bit(profile: dict | None, bit: int) -> dict | None:
+    """The ANC mode entry whose protocolIndex matches ``bit``, or None."""
+    for m in anc_modes(profile):
+        if m.get("protocol_index") == bit:
+            return m
+    return None
+
+
 def write_refusal(profile_id: str | None, action: str) -> str | None:
     """Reason a write must not proceed, or None when the profile is verified."""
     if is_verified(profile_id):
