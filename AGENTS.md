@@ -50,6 +50,7 @@ Enco Buds (ETI81, product id `062410`)** unless a claim says otherwise.
 | path | what |
 |---|---|
 | `melodyctl.py` | CLI (Phase 4: `melodyctl/` package + thin shim) |
+| `melodyctl/data/` | generated device profiles (whitelist → capabilities; regen via `tools/build-profiles.py`) |
 | `whitelist.json` | decrypted HeyMelody device whitelist (`compatWhiteList`, 85 devices) |
 | `docs/` | protocol, devices, research, findings — the truth |
 | `tools/` | probes (`rfcomm_scan`, `opo_probe`, …), decrypt + generators |

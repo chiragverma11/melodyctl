@@ -15,10 +15,11 @@ allowed **only** in this file.
 | OQ-7 | `0x0403` feature ids beyond 6 (game mode) | feature-switch scope | APK feature table | open |
 | OQ-8 | Unknown unlocked commands: `0x0107 0x0109 0x0400 0x0402 0x0405 0x0408 0x0409 0x0416` | complete protocol coverage | APK | open |
 | OQ-9 | Battery components beyond L/R/case on some models? | battery generalisation | whitelist + prior art | open |
-| OQ-10 | How many whitelist devices are SPP vs BLE-only (e.g. `supportSpp` false)? | honest v1 scope statement | count in `whitelist.json` | open |
+| OQ-10 | How many whitelist devices are SPP vs BLE-only? | honest v1 scope statement | answered 2026-10-17: all 85 advertise SPP | **resolved** |
 
 ## Resolved
 
 | id | answer | pointer |
 |---|---|---|
 | OQ-0 | `0x0105` is a component-version read, not EQ; CLI mislabel fixed in v1.2.2 | `docs/findings/2026-10-17-0x0105-is-remote-version.md` |
+| OQ-10 | All 85 whitelist entries advertise `supportSpp: true` — no BLE-only devices in this whitelist | `docs/devices/coverage.md` (generated) |
