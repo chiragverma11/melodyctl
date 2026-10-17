@@ -86,4 +86,4 @@ First release. Verified on the **OPPO Enco Buds (ETI81)**.
 ### Notes
 - Protocol: OPOv1 over Bluetooth Classic RFCOMM (SPP), the same wire protocol
   HeyMelody uses for OPPO/OnePlus SPP earbuds. Only ETI81 is verified.
-- EQ is read-only and noise reduction is not exposed on ETI81.
+- EQ is read-only and noise reduction is not exposed on ETI81. **Corrected in 1.2.2:** ETI81 has no EQ at all - the old `eq` command read component versions (`0x0105`).
