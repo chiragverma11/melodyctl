@@ -68,6 +68,14 @@ Enco Buds (ETI81, product id `062410`)** unless a claim says otherwise.
 - New capture: raw request/response frames under `docs/protocol/captures/` with a
   header (date, product id, firmware, command, hex), referenced from `claims-matrix.md`.
 
+## Maintainer recipes
+
+- Whitelist regeneration: the HeyMelody APK is **not** committed (~20 MB vendor
+  blob). Put `heymelody-base.apk` in `apk/` (gitignored), then:
+  `python3 tools/decrypt-whitelist.py apk/heymelody-base.apk whitelist.json`,
+  followed by `python3 tools/build-profiles.py` to regenerate
+  `melodyctl/data/profiles.json` + `docs/devices/coverage.md`.
+
 ## Current plan
 
 `/home/chirag/.opencode/plan/melodyctl-family-expansion.md` (phases 0-6).

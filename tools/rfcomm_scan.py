@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Probe RFCOMM channels on the OPPO Enco Buds to find the vendor serial channel."""
+"""Probe RFCOMM channels on an earbud to find the vendor serial channel."""
 import socket
 
 ADDR = "6C:0D:E1:5F:DB:4D"

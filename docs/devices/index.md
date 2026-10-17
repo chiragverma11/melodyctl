@@ -1,6 +1,7 @@
 # Devices — index
 
-Status: skeleton — profiles are generated from `whitelist.json` (Phase 3).
+Status: live - profiles are generated from `whitelist.json`
+(regen: `tools/build-profiles.py`).
 
 Support ladder: **verified** (we ran on hardware) > **external** (named third
 party's published evidence) > **untested** (whitelist-derived). Writes are
@@ -9,8 +10,8 @@ experimental).
 
 | doc | status | content |
 |---|---|---|
-| `compatibility.md` | P3 | product id · name · brand · caps · status · evidence |
 | `eti81-oppo-enco-buds.md` | live | our only verified device record |
-| `coverage.md` | generated (P3) | whitelist-known vs implemented vs verified |
+| `coverage.md` | generated | whitelist-known vs implemented vs verified |
 
-Verified today: only `062410` OPPO Enco Buds (ETI81).
+Verified today: only `062410` OPPO Enco Buds (ETI81). To upgrade a row, run
+`melodyctl report` on the hardware and update its profile + claims.

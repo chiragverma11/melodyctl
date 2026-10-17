@@ -1,11 +1,14 @@
 [Unit]
-Description=melodyctl battery daemon for OPPO Enco Buds (OPOv1/RFCOMM)
+Description=melodyctl battery daemon (HeyMelody-family earbuds, OPOv1/RFCOMM)
 After=bluetooth.target
 Wants=bluetooth.target
 
 [Service]
 Type=simple
+# Edit ExecStart to the path of daemon/melodyctl-daemon.py on your machine:
 ExecStart=%h/stuff/melodyctl/daemon/melodyctl-daemon.py
+# Set your earbuds' address (otherwise the built-in maintainer default is used):
+# Environment=MELODYCTL_ADDR=6C:0D:E1:5F:DB:4D
 Environment=MELODYCTL_INTERVAL=30
 Restart=on-failure
 RestartSec=10

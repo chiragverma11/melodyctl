@@ -29,13 +29,14 @@ def _resolve_int(value: str, aliases: dict[str, int], kind: str) -> int:
 
 def _gesture_tables() -> str:
     """Render the gesture value tables + examples (used by --list and -h)."""
-    out = ["value tables  (ETI81 = OPPO Enco Buds, whitelist product 062410)", ""]
+    out = ["value tables  (combos come from the verified profile: OPPO Enco Buds,",
+           "              whitelist product 062410; other models may differ)", ""]
     out.append("  ear     which bud        1=left, 2=right, 4=both (4 is split into per-ear writes)")
-    out.append("  button  which control    1=tap/touch (the only one on ETI81), 6=slide/pinch (not on ETI81)")
+    out.append("  button  which control    1=tap/touch, 6=slide/pinch (not on all models)")
     out.append("  action  which gesture on that button:")
     for a in sorted(ACTION_NAMES):
         out.append(f"                          {a} = {ACTION_NAMES[a]}")
-    out.append("  function  what the gesture does (allowed combos on ETI81):")
+    out.append("  function  what the gesture does (allowed combos on the verified profile):")
     for a in sorted(ACTION_FUNCTIONS):
         fns = ", ".join(f"{f}={FUNCTION_NAMES.get(f, '?')}" for f in ACTION_FUNCTIONS[a])
         out.append(f"                          action {a} ({ACTION_NAMES[a]}): {fns}")
@@ -91,7 +92,10 @@ def _anc_index(value: str, profile: dict | None) -> int | None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="melodyctl", description="OPPO Enco Buds control (OPOv1/RFCOMM)")
+    ap = argparse.ArgumentParser(
+        prog="melodyctl",
+        description="Control HeyMelody-family earbuds (OPPO Enco / OnePlus Buds) "
+                    "over the OPOv1/RFCOMM protocol")
     ap.add_argument("-V", "--version", action="version", version=f"melodyctl {__version__}")
     ap.add_argument("-a", "--addr", default=ADDR_DEFAULT, help="buds Bluetooth address")
     ap.add_argument("--channel", type=int,
@@ -136,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
     p_gs.add_argument("ear", nargs="?", type=lambda v: _resolve_int(v, EAR_ALIASES, "ear"),
                       help="which bud: 1=left, 2=right, 4=both")
     p_gs.add_argument("button", nargs="?", type=lambda v: _resolve_int(v, BUTTON_ALIASES, "button"),
-                      help="which control: 1=tap (6=slide/pinch, not on ETI81)")
+                      help="which control: 1=tap (6=slide/pinch on some models)")
     p_gs.add_argument("action", nargs="?", type=lambda v: _resolve_int(v, ACTION_ALIASES, "action"),
                       help="which gesture: 1=single 2=double 3=triple 4=long press")
     p_gs.add_argument("function", nargs="?", type=lambda v: _resolve_int(v, FUNCTION_ALIASES, "function"),
@@ -400,7 +404,7 @@ def main(argv: list[str] | None = None) -> int:
                 allowed = ACTION_FUNCTIONS.get(args.action)
                 if allowed is None:
                     problems.append(
-                        f"action {args.action} is not a gesture slot on ETI81 "
+                        f"action {args.action} is not a gesture slot in the verified profile "
                         f"(valid: {', '.join(str(a) for a in sorted(ACTION_FUNCTIONS))})")
                 elif args.function not in allowed:
                     problems.append(

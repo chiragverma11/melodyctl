@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Connect directly to the OPPO Enco Buds LE address and enumerate GATT."""
+"""Connect directly to an earbud's LE address and enumerate GATT."""
 import asyncio
 import sys
 

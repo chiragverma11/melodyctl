@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enumerate GATT services/characteristics of the OPPO Enco Buds."""
+"""Enumerate GATT services/characteristics of an earbud."""
 import asyncio
 import sys
 

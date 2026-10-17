@@ -3,6 +3,17 @@
 All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Documentation
+- CLI help, README, daemon and tools wording now present the tool as
+  HeyMelody-family; the `gesture-set` tables are labelled as combos from the
+  verified profile (062410). No protocol facts changed.
+- README restructured for visitors: install + quick start first, full command
+  table, explicit verification ladder, linked `dms-plugins` widget section, and
+  corrected daemon instructions. Whitelist/APK regeneration moved to
+  `AGENTS.md`.
+
 ## [1.3.0] - 2026-10-17
 
 ### Added

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""melodyctl-daemon - poll OPPO Enco Buds battery and publish it as JSON.
+"""melodyctl-daemon - poll HeyMelody-family earbud battery and publish it as JSON.
 
 Writes $XDG_RUNTIME_DIR/melodyctl-battery.json atomically, e.g.:
   {"ts": 1760.., "left": 80, "right": 100, "case": 70, "addr": "6C:0D:E1:5F:DB:4D"}
