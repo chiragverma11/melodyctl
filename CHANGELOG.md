@@ -5,6 +5,12 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `melodyctl device` - identify the connected earbuds (0x0103 product id, whitelist name, brand, capabilities, verification status).
+- `melodyctl report` - read-only, sanitised compatibility report (product id, caps bitmap, firmware, battery, raw ANC probe, transport channel); `--with-addr` opts into the Bluetooth address.
+- Channel discovery: connect probes 12 -> 15 -> 1..30 when no channel is known (stdlib has no SDP) and sticks with the first that accepts; `--channel` / `MELODYCTL_CHANNEL` override.
+- Write gating: `game`, `eq-set` and `gesture-set` verify the product id via 0x0103 and refuse writes on non-verified profiles unless `--force` (new `--force` on `game` and `eq-set`).
+
 ### Changed
 - Package refactor: the single-file CLI is now `melodyctl/` (`protocol`,
   `transport`, `errors`, `cli`) with `melodyctl.py` kept as a shim for running

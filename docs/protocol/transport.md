@@ -21,8 +21,12 @@ ETI81 unless tagged otherwise.
 - Prior art hardcodes **15** [prior:gazz@abe70f4]; another project claims "12
   exclusively" [prior:osp54@3dbdc47] [untested]. Neither number is family-wide
   → OQ-3.
-- SDP discovery is **not yet implemented**; `tools/rfcomm_scan.py` exists to
-  browse and save service records [untested].
+- SDP discovery is **not implemented** (the Python stdlib has no SDP API).
+  Since Phase 4 the CLI probes on connect — 12, then 15, then a 1..30 sweep —
+  and remembers the first channel that accepts; `--channel` /
+  `MELODYCTL_CHANNEL` override it [hw:ETI81 2026-10-17] (probe path exercised
+  on ETI81; other models untested). `tools/rfcomm_scan.py` browses and saves
+  service records [untested].
 
 ## Session rules
 

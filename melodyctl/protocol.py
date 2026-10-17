@@ -10,12 +10,14 @@ CMD_INFO = 0x0103
 CMD_VERSION_GET = 0x0105     # status, count, then ASCII triples (component,kind,value)
 CMD_BATT_GET = 0x0106
 CMD_GESTURES_GET = 0x0108
+CMD_ANC_QUERY = 0x010c       # payload 01 01; ETI81 replies bare 02 (see docs/protocol/commands/anc.md)
 CMD_EQ_SET = 0x0406          # payload: [protocol_index]  (unsupported on ETI81)
 CMD_EQ_CUSTOM_SET = 0x0418   # payload: custom EQ band data
 CMD_GAMESOUND_SET = 0x0423   # payload: [type, enable]    (unsupported on ETI81)
 CMD_GESTURES_SET = 0x0401    # payload: [count, (deviceType,button,action,function)*count]
 CMD_KEYFUNC_SET = CMD_GESTURES_SET
 CMD_SWITCH_FEATURE = 0x0403  # payload: [featureId, enable]  (feature 6 = game mode)
+CMD_ANC_SET = 0x0404         # payload: 01 01 <bitmap>  (see docs/protocol/commands/anc.md)
 CMD_NOTIFY_SUB = 0x0200      # subscribe to device notifications (no payload)
 CMD_NOTIFY_REG = 0x0201      # register one event: payload [eventId]
 CMD_NOTIFY_PUSH = 0x0204     # device push; payload[0] = event id
@@ -32,6 +34,7 @@ CMD_NAMES = {
     CMD_BATT_GET: "battery", CMD_EQ_SET: "eq_set", CMD_EQ_CUSTOM_SET: "eq_custom_set",
     CMD_GAMESOUND_SET: "game_sound_set", CMD_GESTURES_SET: "gesture_set",
     CMD_GESTURES_GET: "gestures", CMD_SWITCH_FEATURE: "switch_feature",
+    CMD_ANC_QUERY: "anc_query", CMD_ANC_SET: "anc_set",
 }
 
 # p026b8.a.f14745a: capability bit index -> command ids it unlocks.
@@ -169,6 +172,13 @@ def decode_caps(payload: bytes) -> set[int]:
         if i < len(bmp) * 8 and (bmp[i // 8] >> (i % 8)) & 1:
             out.update(ids)
     return out
+
+
+def decode_product_id(payload: bytes) -> str | None:
+    """Decode the 0x0103 reply: [status][3-byte little-endian product id]."""
+    if len(payload) < 4:
+        return None
+    return payload[1:4][::-1].hex().upper()
 
 
 def decode_gestures(payload: bytes) -> list[dict]:

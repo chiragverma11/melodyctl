@@ -8,9 +8,9 @@ import sys
 import time
 import traceback
 
-from . import __version__
+from . import __version__, devices
 from .errors import emit_error
-from .protocol import ACTION_ALIASES, ACTION_FUNCTIONS, ACTION_NAMES, BUTTON_ALIASES, BUTTON_NAMES, CMD_BATT_GET, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD_GESTURES_GET, CMD_GESTURES_SET, CMD_INFO, CMD_NOTIFY_PUSH, CMD_SWITCH_FEATURE, CMD_VERSION_GET, EAR, EAR_ALIASES, FUNCTION_ALIASES, FUNCTION_NAMES, NOTIFY_NAMES, NOTIFY_USER_INTERACTION, _fmt_battery, _fmt_versions, decode_user_interaction, decode_version_records, parse_frames
+from .protocol import ACTION_ALIASES, ACTION_FUNCTIONS, ACTION_NAMES, BUTTON_ALIASES, BUTTON_NAMES, CMD_ANC_QUERY, CMD_BATT_GET, CMD_CAPS, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD_GESTURES_GET, CMD_GESTURES_SET, CMD_INFO, CMD_NOTIFY_PUSH, CMD_SWITCH_FEATURE, CMD_VERSION_GET, EAR, EAR_ALIASES, FUNCTION_ALIASES, FUNCTION_NAMES, NOTIFY_NAMES, NOTIFY_USER_INTERACTION, _fmt_battery, _fmt_versions, decode_caps, decode_product_id, decode_user_interaction, decode_version_records, parse_frames
 from .transport import ADDR_DEFAULT, Buds
 
 
@@ -52,10 +52,30 @@ def _gesture_tables() -> str:
     return "\n".join(out)
 
 
+def _identify(conn: Buds) -> str | None:
+    """Product id from 0x0103 ('062410'), or None when the device stays silent."""
+    resp = conn.send(CMD_INFO)
+    return decode_product_id(resp[0]["payload"]) if resp else None
+
+
+def _write_gate(pid: str | None, action: str, force: bool) -> bool:
+    """Enforce the write gate: verified profiles only. False = refused (printed)."""
+    refusal = devices.write_refusal(pid, action)
+    if refusal is None:
+        return True
+    if force:
+        print(f"warning: {refusal} sending anyway (--force)", file=sys.stderr)
+        return True
+    print(f"error: {refusal} re-run with --force to send anyway.", file=sys.stderr)
+    return False
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="melodyctl", description="OPPO Enco Buds control (OPOv1/RFCOMM)")
     ap.add_argument("-V", "--version", action="version", version=f"melodyctl {__version__}")
     ap.add_argument("-a", "--addr", default=ADDR_DEFAULT, help="buds Bluetooth address")
+    ap.add_argument("--channel", type=int,
+                    help="RFCOMM channel override (default: probe 12, 15, then 1-30)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p_bat = sub.add_parser("battery", help="read Left/Right/Case battery")
@@ -67,6 +87,13 @@ def main(argv: list[str] | None = None) -> int:
     p_mon.add_argument("--json", action="store_true")
 
     sub.add_parser("devinfo", help="query device info (raw)")
+
+    p_dev = sub.add_parser("device", help="identify the connected device (product id, whitelist profile, caps)")
+    p_dev.add_argument("--json", action="store_true")
+
+    p_rep = sub.add_parser("report", help="read-only compatibility report (safe to paste in an issue)")
+    p_rep.add_argument("--with-addr", action="store_true",
+                       help="include the Bluetooth address (default: omitted)")
 
     p_caps = sub.add_parser("caps", help="show device capability bitmap / supported commands")
     p_caps.add_argument("--json", action="store_true")
@@ -87,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
     p_gs.add_argument("function", nargs="?", type=lambda v: _resolve_int(v, FUNCTION_ALIASES, "function"),
                       help="what it does, e.g. play/pause, prev, next, vol+, assistant, game, none")
     p_gs.add_argument("-f", "--force", action="store_true",
-                      help="send even if the action/function combo is not advertised for this model")
+                      help="send even if the combo is not advertised or the product id is unverified")
     p_gs.add_argument("-l", "--list", action="store_true",
                       help="print the gesture value tables and exit (no device connection)")
 
@@ -98,9 +125,13 @@ def main(argv: list[str] | None = None) -> int:
     p_eqs = sub.add_parser(
         "eq-set", help="select EQ preset by protocol index (other models; experimental)")
     p_eqs.add_argument("index", type=lambda v: int(v, 0))
+    p_eqs.add_argument("-f", "--force", action="store_true",
+                       help="send even if the product id is not a verified profile")
 
     p_game = sub.add_parser("game", help="toggle game (low-latency) mode")
     p_game.add_argument("state", choices=["on", "off"])
+    p_game.add_argument("-f", "--force", action="store_true",
+                        help="send even if the product id is not a verified profile")
 
     sub.add_parser("watch", help="subscribe to device events (tap the buds to map gestures)")
 
@@ -108,6 +139,8 @@ def main(argv: list[str] | None = None) -> int:
     p_raw.add_argument("hex")
 
     args = ap.parse_args(argv)
+    if args.channel is not None:
+        os.environ["MELODYCTL_CHANNEL"] = str(args.channel)
 
     json_mode = "--json" in (sys.argv[1:] if argv is None else argv)
 
@@ -141,6 +174,82 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"cmd=0x{f['cmd']:04x} payload={f['payload'].hex(' ').upper()}")
                 else:
                     pass
+            return 0
+
+        if args.cmd == "device":
+            with Buds(args.addr) as conn:
+                pid = _identify(conn)
+                channel = conn.channel
+            profile = devices.profile_for(pid)
+            verified = devices.is_verified(pid)
+            if args.json:
+                print(json.dumps({
+                    "id": pid,
+                    "name": profile.get("name") if profile else None,
+                    "brand": profile.get("brand") if profile else None,
+                    "verified": verified,
+                    "caps": devices.caps_summary(profile) if profile else None,
+                    "channel": channel,
+                }))
+                return 0 if pid else 1
+            if pid is None:
+                print("product id : unknown (device did not answer 0x0103)", file=sys.stderr)
+                return 1
+            print(f"product id : {pid}")
+            if profile:
+                status = ("verified (this project)" if verified
+                          else "untested (whitelist-derived, read-only)")
+                print(f"device     : {profile.get('name', '?')} [{profile.get('brand', '?')}]")
+                print(f"status     : {status}")
+                print(f"caps       : {', '.join(devices.caps_summary(profile)) or '(none known)'}")
+            else:
+                print("device     : not in the HeyMelody whitelist (unknown id)")
+            print(f"channel    : {channel}")
+            if not verified:
+                print("note       : writes need --force until this device is verified")
+            return 0
+
+        if args.cmd == "report":
+            def _try(fn):
+                try:
+                    return fn()
+                except Exception as exc:  # noqa: BLE001 - report keeps going
+                    return {"error": str(exc)}
+
+            with Buds(args.addr) as conn:
+                pid = _try(lambda: _identify(conn))
+                if isinstance(pid, dict):
+                    pid = None
+                caps_resp = _try(lambda: conn.send(CMD_CAPS))
+                caps_payload = (caps_resp[0]["payload"]
+                                if isinstance(caps_resp, list) and caps_resp else b"")
+                advertised = sorted(decode_caps(caps_payload)) if caps_payload else []
+                versions = _try(conn.versions)
+                battery = _try(conn.battery)
+                anc_resp = _try(lambda: conn.send(CMD_ANC_QUERY, b"\x01\x01"))
+                anc_payload = (anc_resp[0]["payload"].hex(" ").upper()
+                               if isinstance(anc_resp, list) and anc_resp else None)
+                transport_info = {"channel": conn.channel,
+                                  "discovered": conn.channel_discovered}
+            profile = devices.profile_for(pid)
+            report = {
+                "tool": {"name": "melodyctl", "version": __version__,
+                         "date": time.strftime("%Y-%m-%d")},
+                "address": args.addr if args.with_addr else "(omitted; re-run with --with-addr)",
+                "transport": transport_info,
+                "product": {"id": pid,
+                            "name": (profile or {}).get("name"),
+                            "in_whitelist": profile is not None,
+                            "verified": devices.is_verified(pid)},
+                "whitelist_caps": devices.caps_summary(profile) if profile else None,
+                "caps": {"bitmap": caps_payload.hex(" ").upper() if caps_payload else None,
+                         "advertised": [f"0x{c:04x}" for c in advertised]},
+                "firmware": versions,
+                "battery": battery,
+                "anc_query": {"payload": anc_payload,
+                              "note": "raw 0x010c reply; not interpreted (OQ-1)"},
+            }
+            print(json.dumps(report, indent=2))
             return 0
 
         if args.cmd == "caps":
@@ -212,6 +321,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"warning: {p} (sending anyway due to --force)", file=sys.stderr)
 
             with Buds(args.addr) as conn:
+                if not _write_gate(_identify(conn), "gesture", args.force):
+                    return 2
                 resp = conn.set_gesture(args.ear, args.button, args.action, args.function)
             if not resp:
                 print("no ack (command unsupported or rejected)", file=sys.stderr)
@@ -243,6 +354,8 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.cmd == "eq-set":
             with Buds(args.addr) as conn:
+                if not _write_gate(_identify(conn), "eq preset", args.force):
+                    return 2
                 resp = conn.set_eq(args.index)
             print(f"set EQ index={args.index} -> " +
                   (", ".join(f"0x{f['cmd']:04x}:{f['payload'].hex(' ').upper()}" for f in resp) or "no ack"))
@@ -250,6 +363,8 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.cmd == "game":
             with Buds(args.addr) as conn:
+                if not _write_gate(_identify(conn), "game-mode", args.force):
+                    return 2
                 resp = conn.set_game_mode(args.state == "on")
             code = resp[0]["payload"][0] if resp and resp[0]["payload"] else None
             print(f"game mode {args.state} -> ack {code} "

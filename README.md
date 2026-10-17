@@ -17,6 +17,8 @@ just Bluetooth Classic RFCOMM.
 | `melodyctl battery` | Left / Right / Case levels (`--json`, `--json-full`) |
 | `melodyctl monitor` | Poll battery continuously |
 | `melodyctl caps` | Decode the device capability bitmap |
+| `melodyctl device` | Identify the connected device (product id → whitelist profile) |
+| `melodyctl report` | Read-only compatibility report, paste-safe (`--with-addr` includes the address) |
 | `melodyctl gestures` | Read the touch-gesture table |
 | `melodyctl gesture-set` | Assign a gesture function |
 | `melodyctl game on\|off` | Toggle low-latency game mode |

@@ -8,7 +8,7 @@ allowed **only** in this file.
 |---|---|---|---|---|
 | OQ-1 | What does `0x010c` returning bare `02` mean on ETI81? Unsupported code vs something else | ANC decoder must classify "no ANC" without inventing modes | APK cross-check; probe on an ANC device later | open (probe 2026-10-17) |
 | OQ-2 | `0x0205` bulk subscribe vs our `0x0201` per-event register — are both valid family-wide? | notification flow generalisation | Gazz: `0x0200`→`0x8200`, then `0x0205` with the exact advertised set → `0x8205` + `0x0204` snapshot (`[prior:gazz@abe70f4]`, no `0x0201` involved); ours (`0x0201`) works on ETI81 — test `0x0205` on ETI81; APK | open |
-| OQ-3 | Is ETI81's RFCOMM channel (12) discoverable via SDP? Prior art conflicts: osp54 says "12 exclusively", buildscript + Gazz use 15 on their devices | transport must not hardcode | `tools/rfcomm_scan.py` browse, save to captures; SDP discovery in Phase 4 | open |
+| OQ-3 | Is ETI81's RFCOMM channel (12) discoverable via SDP? Prior art conflicts: osp54 says "12 exclusively", buildscript + Gazz use 15 on their devices | transport must not hardcode | probe discovery shipped (12 → 15 → 1..30, verified on ETI81, `--channel` override); SDP itself still unimplemented — resolve when a non-12-channel device is available | open (probe shipped) |
 | OQ-4 | Version-triple kinds 1 and 4 (ETI81: kind1 = 9/0/33, kind4 = 0/0/0) | complete version docs | APK; compare with other captures | open |
 | OQ-5 | Caps bitmap decode — what do `ff 63` bits map to? | capability gating correctness | APK (`getRemoteCapability`), re-verify current unlocked list | open |
 | OQ-6 | Does ANC query need auth (legacy HELLO + `0x8500` REGISTER token) on newer devices? | Phase 5 query design | prior-art cross-check; cannot test here | open |

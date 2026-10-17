@@ -11,15 +11,21 @@ from .protocol import CMD_BATT_GET, CMD_CAPS, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD
 
 ADDR_DEFAULT = (os.environ.get("MELODYCTL_ADDR")
                 or os.environ.get("ENCO_ADDR", "6C:0D:E1:5F:DB:4D"))
-RFCOMM_CH = 12
+RFCOMM_CH = 12                    # ETI81 (hw-verified); other models differ - OQ-3
+CHANNEL_CANDIDATES = [RFCOMM_CH, 15]   # then a full 1..30 sweep
+PROBE_TIMEOUT = 2.0               # per-channel cap while discovering
 
 
 class Buds:
-    def __init__(self, addr: str = ADDR_DEFAULT, timeout: float = 10.0) -> None:
+    def __init__(self, addr: str = ADDR_DEFAULT, timeout: float = 10.0,
+                 channel: int | None = None) -> None:
         self.addr = addr
         self.timeout = timeout
         self.sock: socket.socket | None = None
         self.seq = 0x20
+        env = os.environ.get("MELODYCTL_CHANNEL")
+        self.channel = channel if channel is not None else (int(env) if env else None)
+        self.channel_discovered = False
 
     def __enter__(self) -> "Buds":
         self.connect()
@@ -36,11 +42,49 @@ class Buds:
                 hint="Install melodyctl with a system Python, e.g. 'uv tool install "
                      "--python /usr/bin/python3 git+https://github.com/chiragverma11/melodyctl'.",
             )
-        s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-        s.settimeout(self.timeout)
-        s.connect((self.addr, RFCOMM_CH))
-        self.sock = s
+        self.sock = self._open_socket()
         self._hello()
+
+    # ---- channel discovery -------------------------------------------------
+    def _open_socket(self) -> socket.socket:
+        """Connect, discovering the RFCOMM channel when it is not known.
+
+        The Python stdlib has no SDP, so discovery is a probe: the ETI81
+        value, the prior-art value, then a 1..30 sweep. Address-level errors
+        (busy / host down / no adapter) abort instead of sweeping.
+        """
+        if self.channel is not None:
+            return self._connect_channel(self.channel)
+        last: OSError | None = None
+        order = CHANNEL_CANDIDATES + [c for c in range(1, 31)
+                                      if c not in CHANNEL_CANDIDATES]
+        for ch in order:
+            try:
+                sock = self._connect_channel(ch, timeout=PROBE_TIMEOUT)
+            except OSError as exc:
+                if exc.errno in (16, 19, 112, 113):  # busy / no adapter / host down
+                    raise
+                last = exc
+                continue
+            self.channel = ch
+            self.channel_discovered = True
+            return sock
+        raise MelodyctlError(
+            f"no RFCOMM channel accepted a connection on {self.addr}",
+            code="no_channel",
+            hint=f"probed channels 1-30 (last error: {last}); is the device awake, "
+                 f"paired and not held by another app?",
+        )
+
+    def _connect_channel(self, channel: int, timeout: float | None = None) -> socket.socket:
+        s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+        s.settimeout(timeout if timeout is not None else self.timeout)
+        try:
+            s.connect((self.addr, channel))
+        except OSError:
+            s.close()
+            raise
+        return s
 
     def close(self) -> None:
         if self.sock is not None:
