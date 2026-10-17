@@ -38,7 +38,7 @@ writes work with only the capability "hello" frame; there is **no auth token**.
 |---|---|---|
 | `0x0100` | poll | capability bitmap (`getRemoteCapability`, also used as hello) |
 | `0x0103` | poll | device info |
-| `0x0105` | poll | EQ preset read |
+| `0x0105` | poll | component versions: `status, count`, then ASCII triples `(component,kind,value)`; kind 2 = firmware |
 | `0x0106` | poll | battery |
 | `0x0108` | poll | touch gestures (key function) read |
 | `0x0200` | write | subscribe to notifications (no payload) |
@@ -46,7 +46,7 @@ writes work with only the capability "hello" frame; there is **no auth token**.
 | `0x0204` | push | device event; `payload[0]` = event id |
 | `0x0401` | write | set gesture: `[count, (deviceType,button,action,function)*count]` |
 | `0x0403` | write | feature switch: `[featureId, enable]` (feature 6 = game mode) |
-| `0x0406` | write | EQ set (**unsupported on ETI81**, read-only) |
+| `0x0406` | write | EQ select by protocol index (**not advertised on ETI81**; no EQ) |
 | `0x0423` | write | game *sound* (**unsupported on ETI81**) |
 
 ### Capability bitmap (`0x0100`)
@@ -62,6 +62,17 @@ Reply payload: `[00][count][(device, charging<<7 | level) * count]`.
 
 - `device`: `1` = left, `2` = right, `3` = case (from `C0922j.java`).
 - `charging`: bit 7; `level`: bits 0-6.
+
+## Versions (`0x0105`)
+
+Reply payload: `[status][count]` then an ASCII CSV of `count` triples
+`(component, kind, value)`. Components 1/2/3 = left/right/case; kind 2 is the
+component firmware (kinds 1 and 4 not yet interpreted).
+
+ETI81: left 165, right 165, case 118. The shape is cross-confirmed on other
+models (Buds Pro 541/541/510, Buds Pro 2 196/196/101 - Gazz's phone-verified
+captures), so `melodyctl fw` should generalise; left == right and the case
+differs in every observed capture.
 
 ## Gestures
 
