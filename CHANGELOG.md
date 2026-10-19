@@ -15,9 +15,11 @@ to [Semantic Versioning](https://semver.org/).
 - `melodyctl watch --retry-max <seconds>` caps the reconnect back-off (the
   daemon will want more than the 15 s default) and `watch -f/--force` registers
   event ids the device does not advertise, for probing only.
-- `melodyctl watch` decodes push event `5` (game mode), including the
-  per-product status-byte offset. App-derived: no device has pushed it for us
-  yet and ETI81 does not advertise id `5` (OQ-15).
+- `melodyctl watch` decodes push event `5` (game mode) — hardware-verified:
+  ETI81 sends `05 01 05 <state>` with the state as the **last body byte** (the
+  per-product offset the app uses), and it pushes the event **unsolicited**:
+  the device refuses `0x0201 [05]` and does not advertise id `5`, yet sends it
+  anyway (claims #48/#49, OQ-15 resolved).
 
 ## [1.4.0] - 2026-10-19
 

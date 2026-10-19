@@ -76,7 +76,7 @@ melodyctl gesture-set both  tap long   vol+      # both ears, hold = volume up
 | `melodyctl gestures` | Read the touch-gesture table |
 | `melodyctl gesture-set` | Assign a gesture function (`--list` for values; `--list --json [--product ID]` for the machine-readable vocabulary + that model's allowed combos, offline) |
 | `melodyctl game on\|off` | Toggle low-latency game mode |
-| `melodyctl watch` | Live-subscribe to the device's pushes: battery, case/bud state, gestures, connected devices - timestamped lines, or one JSON object per event with a `ts` field (`--json`); `--reconnect` waits for the buds and reconnects after they drop (`--retry-max` caps the back-off, `-f` registers unadvertised ids for probing) |
+| `melodyctl watch` | Live-subscribe to the device's pushes: battery, case/bud state, gestures, game mode, connected devices - timestamped lines, or one JSON object per event with a `ts` field (`--json`); `--reconnect` waits for the buds and reconnects after they drop (`--retry-max` caps the back-off, `-f` registers unadvertised ids for probing) |
 | `melodyctl raw` | Send a raw OPOv1 packet (debugging) |
 
 `devinfo` (raw hex dump) and `eq-set` (EQ preset by protocol index,

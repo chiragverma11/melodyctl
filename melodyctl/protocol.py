@@ -384,20 +384,22 @@ def decode_connected_devices_event(body: bytes) -> list[dict]:
 
 
 # Product ids whose game-mode push (event 5) carries its status byte one byte
-# further in - payload[2] instead of payload[1] [apk:j#b]. ETI81's own id is in
-# the set, which makes it the one we can actually probe on hardware.
+# further in than the default [apk:j#b]. Verified on ETI81 2026-10-19: the body
+# there is `01 05 <state>`, so the state is body[2]; the default is body[1].
 GAME_MODE_STATE_INDEX = {"062410", "062810", "063410", "063010"}
 
 
 def decode_game_mode_event(body: bytes, product_id: str | None = None) -> dict:
     """Decode a pushed game-mode event body (0x0204 type 5).
 
-    The body is ``[state]`` on most products and ``[?, state]`` on the four ids
-    in ``GAME_MODE_STATE_INDEX`` [apk:j#b]. The status byte is a flag (non-zero
-    = on); no capture has been taken yet, so this stays app-derived until a
-    device actually pushes event `5` (see `docs/research/open-questions.md`).
+    Body layout, observed on ETI81 (`01 05 01` / `01 05 00`, captured
+    `docs/protocol/captures/2026-10-19-eti81-notify-push.md` run 7): a leading
+    `01`, then `05` (the event id again - meaning unknown), then the state byte,
+    non-zero = on. Products outside ``GAME_MODE_STATE_INDEX`` read one byte
+    earlier [apk:j#b]; that default path is still app-derived, and so is the
+    meaning of the two leading bytes.
     """
-    index = 1 if product_id and product_id.upper() in GAME_MODE_STATE_INDEX else 0
+    index = 2 if product_id and product_id.upper() in GAME_MODE_STATE_INDEX else 1
     if len(body) <= index:
         return {}
     return {"on": bool(body[index]), "state": body[index]}

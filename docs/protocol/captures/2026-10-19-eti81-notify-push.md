@@ -138,6 +138,56 @@ the reply cannot be used as the gate. The capability bitmap is the only
 reliable signal, and the automatic fallback to `0x0201` is what actually
 registers. Both ids acked `0`.
 
+## Run 7 — game-mode push, event `5`
+
+Both buds already had **triple tap → game mode** bound (`melodyctl gestures`),
+so no write was needed. Session: `0x0200` → `0x8200` `[00][04][01 02 F1 F2]`,
+then one `0x0201` per id for `1 2 241 5` (`watch -e 1,2,241,5 -f`; ETI81 does
+not advertise `5`, so `-f` was needed to send the request at all).
+
+Registration answers, probed directly with hand-built `0x0201` frames
+(`melodyctl raw "aa 08 00 00 01 02 00 01 00 <id>"`):
+
+| request | reply | status |
+|---|---|---|
+| `0x0201` `[05]` | `8201` `[01][05]` | **refused** |
+| `0x0201` `[02]` | `8201` `[00][02]` | accepted |
+| `0x0201` `[03]` | `8201` `[01][03]` | refused |
+
+`0x8201` payload = `[status][eventId]`; the firmware refuses ids it does not
+advertise (`3`, `5`) with status `01`.
+
+Pushes, in arrival order — twelve triple taps, each producing a gesture event
+and then a game-mode event ~0.9 s later:
+
+| payload (hex) | event | decoded |
+|---|---|---|
+| `F1 01 01 03 11 02 DE 00 00 00` | 241 | left · tap · triple → f17 game mode |
+| `05 01 05 01` | 5 | state `01` |
+| `F1 01 01 03 11 02 CA 00 00 00` | 241 | left · triple → game mode |
+| `05 01 05 00` | 5 | state `00` |
+| … (ten more, identical shape) | | `01`/`00` alternating with the taps |
+| `F1 02 01 02 06 02 43 00` | 241 | right · **double** tap → f6 next song |
+| `F1 02 01 02 06 02 C3 00` | 241 | right · double tap → next song (no event 5) |
+
+Every game-mode frame is `05 01 05 <state>`: the state is the **last body
+byte** (`payload[3]` / body[2]), one byte further in than the app's default
+read — the per-product branch of claims #40, whose id list includes ETI81
+(`062410`). The two leading bytes (`01`, `05`) were constant across all 20
+frames in runs 7-8; only the last byte moved, and it tracked the game-mode
+toggle (`01` = on, `00` = off). Non-game gestures produced **no** event 5.
+
+## Run 8 — event `5` without registering it
+
+Same tap sequence, but the session registered **only** the advertised ids
+(`watch -e 1,2,241`: `registered 3 event(s) via per-event`, no `0x0201` for
+`5`, no `-f`). Event 5 still arrived, same `05 01 05 <state>` frames, same
+~0.9 s lag: 8 game-mode pushes across 8 triple taps.
+
+So the game-mode push is **unsolicited**: ETI81 refuses to register event `5`
+yet pushes it anyway. Registration is not what enables it, and the advertised
+set (`1 2 F1 F2`) is not the full set of ids that can arrive.
+
 ## Corrections to runs 1-3
 
 Runs 1-3 concluded "the case entry stays present in both events while buds move
@@ -180,5 +230,8 @@ three components (it already keys by component id and tolerates any count).
 - Not observed here: the event-2 **in-ear** bit (bit 1), any `0x8202`
   register-with-value frame, and any set **charging** bit (the buds sat docked,
   at 80% and 100%, reporting `charging: false`). All remain `[apk]`-derived.
+- Event `5` (game mode) **is** pushed — runs 7-8 — as `05 01 05 <state>`, even
+  though the device refuses to register id `5` and does not advertise it.
 
-Related: `docs/protocol/commands/notifications.md`, claims #7 / #33-#36.
+Related: `docs/protocol/commands/notifications.md`, claims #7 / #33-#36,
+#40 / #48-#49.

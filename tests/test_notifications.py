@@ -23,10 +23,10 @@ STATUS_PUSH_SWAPPED = bytes.fromhex("02 03 02 00 01 01 03 04")
 STATUS_PUSH_CLOSED = bytes.fromhex("02 03 01 00 02 00 03 00")
 # Synthetic: a bud seated in the ear (bit 1) while out of the case.
 STATUS_PUSH_IN_EAR = bytes.fromhex("02 01 01 03")
-# 0x0204 type 5 (game mode). No hardware capture yet - the layouts come from
-# the app's per-product offset [apk:j#b], exercised here with synthetic bodies.
-GAME_PUSH_ETI81 = bytes.fromhex("05 aa 01")   # 062410: state byte at payload[2]
-GAME_PUSH_GENERIC = bytes.fromhex("05 00")    # other products: payload[1]
+# 0x0204 type 5 (game mode). Captured on ETI81: the body is `01 05 <state>`,
+# so the state is body[2] there (run 7); other products read body[1].
+GAME_PUSH_ETI81 = bytes.fromhex("05 01 05 01")   # 062410: ...state = 1 (on)
+GAME_PUSH_GENERIC = bytes.fromhex("05 00 00")    # other products: body[1] = 0
 # 0x0204 type 0xF2 (connected devices): one phone, connected 3 times.
 # [count][mac6 reversed][connectTimes u16 LE][nameLen][name]
 DEVICES_PUSH = bytes.fromhex("f2 01 05 04 03 02 01 00 03 00 0d 4f 6e 65 50 6c 75 73 20 39 20"
@@ -115,23 +115,23 @@ class TestConnectedDevicesEvent(unittest.TestCase):
 class TestGameModeEvent(unittest.TestCase):
     """Per-product offset for the game-mode status byte [apk:j#b]."""
 
-    def test_eti81_reads_payload_2(self):
+    def test_eti81_reads_body_2(self):
+        # captured frames: 05 01 05 01 (on) / 05 01 05 00 (off), run 7
         for pid in ("062410", "062810", "063410", "063010"):
-            self.assertEqual(m.decode_game_mode_event(bytes.fromhex("aa 01"), pid),
+            self.assertEqual(m.decode_game_mode_event(bytes.fromhex("01 05 01"), pid),
                              {"on": True, "state": 1}, pid)
-            self.assertEqual(m.decode_game_mode_event(bytes.fromhex("aa 00"), pid),
+            self.assertEqual(m.decode_game_mode_event(bytes.fromhex("01 05 00"), pid),
                              {"on": False, "state": 0}, pid)
             self.assertEqual(m.decode_game_mode_event(bytes.fromhex("01"), pid), {}, pid)
 
-    def test_other_products_read_payload_1(self):
-        self.assertEqual(m.decode_game_mode_event(bytes([1]), "06EC10"),
+    def test_other_products_read_body_1(self):
+        self.assertEqual(m.decode_game_mode_event(bytes([0x01, 1]), "06EC10"),
                          {"on": True, "state": 1})
-        self.assertEqual(m.decode_game_mode_event(bytes([1]), None),
-                         {"on": True, "state": 1})
+        self.assertEqual(m.decode_game_mode_event(bytes([1]), None), {})
         self.assertEqual(m.decode_game_mode_event(b"", None), {})
 
     def test_product_id_case_insensitive(self):
-        self.assertEqual(m.decode_game_mode_event(bytes.fromhex("aa 01"), "062410".lower()),
+        self.assertEqual(m.decode_game_mode_event(bytes.fromhex("01 05 01"), "062410".lower()),
                          {"on": True, "state": 1})
 
 
@@ -187,7 +187,6 @@ class TestNotifyDispatcher(unittest.TestCase):
         # the same body on another product reads the leading byte instead
         ev = m.decode_notify_event(GAME_PUSH_GENERIC, product_id="06EC10")
         self.assertFalse(ev["game"]["on"])
-
     def test_empty_payload(self):
         self.assertEqual(m.decode_notify_event(b""), {})
 

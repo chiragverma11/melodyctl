@@ -346,7 +346,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="send even if the product id is not a verified profile")
 
     p_watch = sub.add_parser(
-        "watch", help="subscribe to device pushes (battery, case/bud status, gestures)")
+        "watch", help="subscribe to device pushes (battery, case/bud status, "
+                      "gestures, game mode)")
     p_watch.add_argument("--json", action="store_true",
                          help="one JSON object per event: 'ts' epoch, 'hex' wire "
                               "payload, 'via' the frame that carried it")
@@ -361,8 +362,9 @@ def main(argv: list[str] | None = None) -> int:
                               "watching for hours wants something larger)")
     p_watch.add_argument("-f", "--force", action="store_true",
                          help="register event ids even when the device does not "
-                              "advertise them (for probing only - an unadvertised "
-                              "push is not state proof)")
+                              "advertise them (for probing only - a refusal does "
+                              "not prove the id never arrives, but a push that "
+                              "does arrive is a lead to capture, not state proof)")
 
     p_raw = sub.add_parser("raw", help="send a raw hex packet")
     p_raw.add_argument("hex")

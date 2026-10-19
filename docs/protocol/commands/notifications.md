@@ -31,6 +31,10 @@
   [prior:gazz@abe70f4]. `melodyctl watch -f` overrides that for a **probe**
   only — an unadvertised id that never arrives proves nothing, and one that
   does arrive is a lead to capture, not state proof.
+- A refusal is not proof the id never arrives: ETI81 answers status `01` to
+  `0x0201` `[05]` and then pushes event `5` unsolicited anyway (run 8), so a
+  watcher must decode an id it never registered. The **advertised set is not
+  exhaustive** [hw:ETI81 2026-10-19].
 - Right after registering, the app sends `0x0109` **only when the device
   advertises it** [apk:j#c] — a candidate "initial state" query (OQ-8); ETI81
   does not advertise it.
@@ -96,12 +100,11 @@ family-wide. What differs is:
   else is registered. Buds Pro advertised `01 02 03 04 06 08 0a`, Buds Pro 2
   ten codes `01 02 03 04 08 0b f1 f2 f3 0a` [prior:gazz@abe70f4].
 - **How to register** (`0x0205` vs `0x0201`) — see above.
-- **Event `5` (game mode)** reads its state byte at body offset `+1`
-  (`payload[2]`) instead of `+0` (`payload[1]`) on product ids `062410`,
-  `062810`, `063410`, `063010` — ETI81 among them [apk:j#b]. `melodyctl watch`
-  implements the branch and passes the product id down; no device has pushed
-  this event for us yet (ETI81 does not even advertise id `5`), so it stays
-  app-derived → OQ-15.
+- **Event `5` (game mode)** reads its state byte at body offset `+2`
+  (`payload[3]`) instead of `+1` (`payload[2]`) on product ids `062410`,
+  `062810`, `063410`, `063010` — ETI81 among them [apk:j#b] [hw:ETI81
+  2026-10-19]. `melodyctl watch` implements the branch and passes the product
+  id down; the observed frame is `05 01 05 <state>`.
 - **Event `2`'s in-ear bit** is only meaningful where the whitelist enables
   `function.wearDetection` — absent on 47 of the 85 entries, ETI81 included,
   which is why we have never seen it [wl:062410] [hw:ETI81 2026-10-19].
@@ -163,18 +166,25 @@ Two decoding rules from hardware:
 
 ### Game-mode event (`5`)
 
-A single status byte (non-zero = on) [apk:j#b]. The app's parser is generic
-except for one product check: on `062410` / `062810` / `063410` / `063010` the
-byte sits one further in, so a body that decodes as `[?, state]` there decodes
-as `[state]` elsewhere (claims #40). `melodyctl watch` needs the product id for
-this one event and gets it from `0x0103` at session start.
+Observed on ETI81 (runs 7-8) as `05 01 05 <state>`: a constant leading `01`,
+then `05` (the event id again — meaning unknown), then the state byte,
+non-zero = on. The state is the **last body byte** there, one byte further in
+than the app's default read, which is the per-product branch claims #40
+describes — the four ids it lists (`062410`, `062810`, `063410`, `063010`)
+include ETI81's own. The default (one byte earlier) is still `[apk]`-derived;
+`melodyctl watch` gets the product id from `0x0103` at session start and picks
+the offset.
 
-Never observed: ETI81 advertises `1 2 241 242` only, and no capture exists.
-`0x0403` feature 6 sets the flag and its ack is separate from this push, so a
-future probe should subscribe with `melodyctl watch --events 1,2,241,5 --force`
-and change the mode from another host (the phone app) or from a gesture bound
-to game mode — the push is what tells a second host that the mode moved. That
-is OQ-15.
+Three things worth knowing before relying on it:
+
+- **Unsolicited.** ETI81 *refuses* to register id `5` (`0x8201` → status `01`,
+  like every unadvertised id) yet pushes it anyway — run 8 saw it in a session
+  that never mentioned `5` and only registered `1 2 241`. Registration is not
+  what enables it, and `0x8200` is not the full set of ids that can arrive.
+- **Edge-triggered like the rest**, ~0.9 s after the gesture that caused it, and
+  only for game-mode changes: the double taps in runs 7-8 produced no event `5`.
+- It reports the *result*, so it is a genuine state source, not a copy of what
+  the controlling host sent.
 
 ### `0x8202` — register-with-value (device-initiated)
 

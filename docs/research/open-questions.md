@@ -14,9 +14,13 @@ allowed **only** in this file.
 | OQ-14 | When does the device send `0x8202` (the register-with-value frame the app routes to its event-2 handler with `arg1 = 33282`)? It never appeared on ETI81, across four re-registrations | the decoder has an untested path, and prior art's "0x8205 then 0x8204 snapshot" is unexplained | capture on a model that does send it, or find the device-side trigger in the app/other prior art | open |
 | OQ-12 | Are component ids `1`/`2`/`3` universal, or do case-less/single-battery models use other ids? The app's vocabulary has `BatteryType.SINGLE` and 4 whitelist entries are neckbands (`type: N`) | battery/bud-status table correctness on those models | run `melodyctl watch --json` on a neckband or clip device — every decoded entry now keeps its raw id under `component` for exactly this | open |
 | OQ-13 | Do the three clip entries really never push battery? They are the only whitelist entries without `function.batteryInfo` (OPPO Enco Clip/Clip2, OnePlus Buds Clip) | a widget must not show a stale `0%` there | `melodyctl report` + `watch` on one of them | open |
-| OQ-15 | Does any of these 85 models push event `5` (game mode)? The app decodes it and ETI81 does not advertise id `5`; nothing has arrived on hardware | a widget must not wait for a push that never comes, and the per-product status-byte offset (claims #40) is unverified | `melodyctl watch --events 1,2,241,5 --force` on an out-of-case session, then move game mode from another host (phone app) or a gesture bound to game mode; also try a model that advertises `5` | open |
+| OQ-16 | What do the two leading bytes of ETI81's game-mode body (`01 05`) mean, and does a non-branch model really put the state at body[1]? Also: what triggers the *multi-connect* (event `6`) and *noise mode* (event `3`) pushes, neither of which ETI81 advertises | the leading bytes are unexplained; the default offset is still `[apk]`-derived, and a decoder that guessed wrong would report a stale game-mode state | call-site analysis of the app's event-5 handler, or a capture from a model outside `062410`/`062810`/`063410`/`063010` | open |
 
 ## Resolved
+
+| id | answer | pointer |
+|---|---|---|
+| OQ-15 | ETI81 **does** push game mode: event `5` arrives unsolicited (`05 01 05 <state>`, state = last body byte) even though the device refuses to register id `5`. So `0x8200`'s advertised set is not exhaustive and a watcher must decode ids it never registered | claims #48/#49; `captures/2026-10-19-eti81-notify-push.md` runs 7-8 |
 
 | id | answer | pointer |
 |---|---|---|
