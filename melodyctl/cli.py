@@ -10,7 +10,7 @@ import traceback
 
 from . import __version__, devices
 from .errors import emit_error
-from .protocol import ACTION_ALIASES, ACTION_NAMES, BUTTON_ALIASES, BUTTON_NAMES, CMD_ANC_QUERY, CMD_BATT_GET, CMD_CAPS, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD_GESTURES_GET, CMD_GESTURES_SET, CMD_INFO, CMD_NOTIFY_PUSH, CMD_SWITCH_FEATURE, CMD_VERSION_GET, EAR, EAR_ALIASES, FUNCTION_ALIASES, FUNCTION_NAMES, MODE_NAMES, NOTIFY_NAMES, NOTIFY_USER_INTERACTION, _fmt_battery, _fmt_versions, anc_bitmap, decode_anc_bitmap, decode_caps, decode_product_id, decode_user_interaction, decode_version_records, function_name, mask_presets, mask_wires, parse_frames, preset_wire
+from .protocol import ACTION_ALIASES, ACTION_NAMES, BUTTON_ALIASES, BUTTON_NAMES, CMD_ANC_QUERY, CMD_BATT_GET, CMD_CAPS, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD_GESTURES_GET, CMD_GESTURES_SET, CMD_INFO, CMD_SWITCH_FEATURE, CMD_VERSION_GET, EAR, EAR_ALIASES, FUNCTION_ALIASES, FUNCTION_NAMES, MODE_NAMES, NOTIFY_NAMES, _fmt_battery, _fmt_status, _fmt_versions, anc_bitmap, decode_anc_bitmap, decode_caps, decode_product_id, decode_version_records, function_name, mask_presets, mask_wires, preset_wire
 from .transport import ADDR_DEFAULT, Buds
 
 
@@ -207,7 +207,12 @@ def main(argv: list[str] | None = None) -> int:
     p_game.add_argument("-f", "--force", action="store_true",
                         help="send even if the product id is not a verified profile")
 
-    sub.add_parser("watch", help="subscribe to device events (tap the buds to map gestures)")
+    p_watch = sub.add_parser(
+        "watch", help="subscribe to device pushes (battery, case/bud status, gestures)")
+    p_watch.add_argument("--json", action="store_true", help="one JSON object per event")
+    p_watch.add_argument("-e", "--events",
+                         help="comma-separated event ids to register, e.g. 1 or 1,2 "
+                              "(default: everything the device advertises)")
 
     p_raw = sub.add_parser("raw", help="send a raw hex packet")
     p_raw.add_argument("hex")
@@ -509,26 +514,45 @@ def main(argv: list[str] | None = None) -> int:
             with Buds(args.addr) as conn:
                 profile = devices.profile_for(_identify(conn))
                 op = devices.oneplus_branch(profile)
-                caps = conn.notify_caps()
+                advertised = conn.notify_caps()
+                wanted = advertised
+                if args.events:
+                    try:
+                        wanted = [int(x, 0) for x in args.events.replace(",", " ").split()]
+                    except ValueError:
+                        print(f"error: --events takes event ids like 1 or 1,2 - "
+                              f"got {args.events!r}", file=sys.stderr)
+                        return 2
+                    skipped = [e for e in wanted if e not in advertised]
+                    if skipped:
+                        # subscribe only to what the device advertises
+                        print("warning: device does not advertise event "
+                              + ", ".join(str(e) for e in skipped)
+                              + "; not registering those", file=sys.stderr)
+                        wanted = [e for e in wanted if e in advertised]
                 print("pushable events:", ", ".join(
-                    f"{e}({NOTIFY_NAMES.get(e, '?')})" for e in caps) or "(none)")
-                conn.register_notify(caps)
-                print("watching for events - tap/triple-tap/hold the buds. Ctrl-C to stop.", flush=True)
-                while True:
-                    for f in parse_frames(conn._drain(1.0)):
-                        if f["cmd"] != CMD_NOTIFY_PUSH:
-                            continue
-                        p = f["payload"]
-                        if not p:
-                            continue
-                        if p[0] == NOTIFY_USER_INTERACTION:
-                            d = decode_user_interaction(p[1:], op)
-                            print(f"  GESTURE   ear={d.get('ear'):<5} button={d.get('button')} "
-                                  f"action={d.get('action')} -> {d.get('function_name')} "
-                                  f"({d.get('function')}) scene={d.get('scene')}", flush=True)
-                        else:
-                            print(f"  EVENT {NOTIFY_NAMES.get(p[0], hex(p[0]))}: "
-                                  f"{p.hex(' ').upper()}", flush=True)
+                    f"{e}({NOTIFY_NAMES.get(e, '?')})" for e in advertised) or "(none)")
+                if not wanted:
+                    print("nothing to watch: no advertised event id matched",
+                          file=sys.stderr)
+                    return 1
+                conn.register_notify(wanted)
+                print("watching for pushes - open/close the case, take the buds out, "
+                      "tap them. Ctrl-C to stop.", flush=True)
+                for ev in conn.iter_events(1.0, op):
+                    if args.json:
+                        print(json.dumps(ev), flush=True)
+                    elif "battery" in ev:
+                        print(f"  BATTERY   {_fmt_battery(ev['battery'])}", flush=True)
+                    elif "status" in ev:
+                        print(f"  STATUS    {_fmt_status(ev['status'])}", flush=True)
+                    elif "interaction" in ev:
+                        d = ev["interaction"]
+                        print(f"  GESTURE   ear={d.get('ear'):<5} button={d.get('button')} "
+                              f"action={d.get('action')} -> {d.get('function_name')} "
+                              f"({d.get('function')}) scene={d.get('scene')}", flush=True)
+                    else:
+                        print(f"  EVENT {ev['event']}: {ev.get('raw', '')}", flush=True)
             return 0
 
         if args.cmd == "raw":

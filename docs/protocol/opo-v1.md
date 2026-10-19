@@ -20,10 +20,11 @@ Only ETI81 is verified by us. Status legend:
 | `0x0109` | poll | unlocked, not interpreted | [commands/unmapped.md](commands/unmapped.md) |
 | `0x010c` | poll | verified query; ETI81 bare `02` = no bitmap (type-tagged, OQ-1 resolved) | [commands/anc.md](commands/anc.md) |
 | `0x010d` | poll | not advertised; prior only [prior:gazz@abe70f4] [prior:leaf@feb7b70] | [commands/unmapped.md](commands/unmapped.md) |
-| `0x0200` | write | verified | [commands/notifications.md](commands/notifications.md) |
-| `0x0201` | write | verified (OQ-2 vs `0x0205`) | [commands/notifications.md](commands/notifications.md) |
-| `0x0204` | push | verified; `0xF1` = user interaction | [commands/notifications.md](commands/notifications.md) |
-| `0x0205` | write | prior only (OQ-2) [prior:gazz@abe70f4] | [commands/notifications.md](commands/notifications.md) |
+| `0x0200` | write | verified — replies the pushable event ids `01 02 F1 F2` | [commands/notifications.md](commands/notifications.md) |
+| `0x0201` | write | verified — per-event register; app fallback when `0x0205` is unsupported (OQ-2 resolved) | [commands/notifications.md](commands/notifications.md) |
+| `0x8202` | push | device-initiated register-with-value; read as `[status][eventId][body]` [apk:j#c] | [commands/notifications.md](commands/notifications.md) |
+| `0x0204` | push | verified — `payload[0]` = event id; `1` battery, `2` bud status, `0xF1` user interaction | [commands/notifications.md](commands/notifications.md) |
+| `0x0205` | write | app uses it for bulk register when the device supports it [apk:j#c]; not sent by us | [commands/notifications.md](commands/notifications.md) |
 | `0x0400` | write | unlocked; app name **find mode** (find earbuds); payload not documented [apk:SetCommandStateInfo#isFindModeRsp] | [commands/unmapped.md](commands/unmapped.md) |
 | `0x0401` | write | verified — ack `0`/`1` | [commands/gestures.md](commands/gestures.md) |
 | `0x0402` | write | unlocked, not interpreted | [commands/unmapped.md](commands/unmapped.md) |

@@ -9,7 +9,7 @@ these were sent by us; do not invent payload layouts.
 | cmd | notes |
 |---|---|
 | `0x0107` | poll; no app-side name found (OQ-8) |
-| `0x0109` | poll; no app-side name found (OQ-8) |
+| `0x0109` | poll; the app sends it right after registering notification handlers — candidate "initial state" query, no reply classifier found (OQ-8) |
 | `0x0402` | write; no app-side name found (OQ-8) |
 | `0x0408` | write; no app-side name found (OQ-8) |
 | `0x0409` | write; no app-side name found (OQ-8) |

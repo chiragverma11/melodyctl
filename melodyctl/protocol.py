@@ -18,13 +18,44 @@ CMD_GESTURES_SET = 0x0401    # payload: [count, (deviceType,button,action,functi
 CMD_KEYFUNC_SET = CMD_GESTURES_SET
 CMD_SWITCH_FEATURE = 0x0403  # payload: [featureId, enable]  (feature 6 = game mode)
 CMD_ANC_SET = 0x0404         # payload: 01 01 <bitmap>  (see docs/protocol/commands/anc.md)
-CMD_NOTIFY_SUB = 0x0200      # subscribe to device notifications (no payload)
+CMD_NOTIFY_SUB = 0x0200      # ask which event ids the device can push (reply 0x8200)
 CMD_NOTIFY_REG = 0x0201      # register one event: payload [eventId]
 CMD_NOTIFY_PUSH = 0x0204     # device push; payload[0] = event id
+CMD_NOTIFY_REG_MULTI = 0x0205    # register many: payload [count, eventId...]
+# Device-initiated "registered notification": the app's incoming-code switch
+# handles 0x8202 (response bit set) and reads it as [status, eventId, body],
+# i.e. the same event body one byte later [apk:j#c]. Never sent by us.
+RESP_NOTIFY_REGISTERED = 0x8202
 
 FEATURE_GAME_MODE = 6
+
+# Push event ids carried by 0x0204 (payload[0]) [apk:j#b]; ETI81 advertises
+# 1/2/241/242 [hw:ETI81 2026-10-19]. The extended 0xF1..0xF9 ids are the app's
+# "event" family; ids 1..17 are the "state" family.
+NOTIFY_BATTERY = 1               # [count][(component, level|charging<<7)...]
+NOTIFY_BUD_STATUS = 2            # [count][(component, flags)...]
 NOTIFY_USER_INTERACTION = 0xF1   # 241: user tapped a bud
-NOTIFY_NAMES = {1: "state_1", 2: "state_2", 241: "user_interaction", 242: "state_242"}
+NOTIFY_CONNECTED_DEVICES = 0xF2  # 242: list of devices connected to the buds
+NOTIFY_NAMES = {
+    NOTIFY_BATTERY: "battery", NOTIFY_BUD_STATUS: "bud_status",
+    3: "noise_mode", 4: "compactness", 5: "game_mode", 6: "multi_connect",
+    8: "hearing_detect", 10: "zen_mode", 11: "personalized_nc",
+    13: "triangle_info", 14: "ear_scan", 15: "public_event", 16: "oneshot",
+    17: "tone_change",
+    NOTIFY_USER_INTERACTION: "user_interaction",
+    NOTIFY_CONNECTED_DEVICES: "connected_devices",
+    0xF3: "reserved_f3", 0xF4: "diagnosis_json", 0xF5: "head_motion_type",
+    0xF6: "head_motion_try", 0xF7: "voice_assist_control",
+    0xF8: "le_br_switch", 0xF9: "ai_translation_audio_focus",
+}
+
+# Bud-status flags (0x0204 type 2, one byte per component) [apk:StatusInfo#<init>].
+# The app exposes them as mInBox / mInEar / mCoverClose / mNeedSafeRemind, i.e.
+# bits 0 and 2 are inverted into their positive forms.
+STATUS_FLAG_OUT_OF_CASE = 0x01   # set = bud is out of the case
+STATUS_FLAG_IN_EAR = 0x02        # set = bud is in the ear
+STATUS_FLAG_COVER_OPEN = 0x04    # set = case lid is open (case entry only)
+STATUS_FLAG_SAFE_REMIND = 0x08   # set = fit/safe-reminder is active
 
 # ANC modeType names [prior:leaf@feb7b70]; 6 and 10 both render "adaptive".
 # Types 11-13 (X4 children) have no published meaning - rendered as "typeN".
@@ -262,6 +293,96 @@ def decode_user_interaction(b: bytes, oneplus_branch: bool = False) -> dict:
         "function_name": function_name(b[3], oneplus_branch),
         "scene": b[4],
     }
+
+
+def decode_battery_event(body: bytes) -> dict[str, dict]:
+    """Decode a pushed battery event body (0x0204 type 1).
+
+    ``[count][ (component, level | charging<<7) * count ]`` [apk:e#d]
+    [apk:BatteryInfo#<init>]. Components follow ``COMPONENT``; the list order is
+    not stable across pushes [hw:ETI81 2026-10-19], so this is keyed by name.
+    """
+    if not body:
+        return {}
+    count = body[0]
+    out: dict[str, dict] = {}
+    for k in range(count):
+        off = 1 + k * 2
+        if off + 2 > len(body):
+            break
+        dev, val = body[off], body[off + 1]
+        out[COMPONENT.get(dev, f"id{dev}")] = {
+            "level": val & 0x7F,
+            "charging": bool(val & 0x80),
+        }
+    return out
+
+
+def decode_status_event(body: bytes) -> dict[str, dict]:
+    """Decode a pushed bud-status event body (0x0204 type 2).
+
+    ``[count][ (component, flags) * count ]`` [apk:e#e] [apk:StatusInfo#<init>].
+    The case entry (3) carries the lid state; its in-case/in-ear flags are not
+    meaningful. Keyed by component - the wire order is not stable
+    [hw:ETI81 2026-10-19].
+    """
+    if not body:
+        return {}
+    count = body[0]
+    out: dict[str, dict] = {}
+    for k in range(count):
+        off = 1 + k * 2
+        if off + 2 > len(body):
+            break
+        dev, flags = body[off], body[off + 1]
+        out[COMPONENT.get(dev, f"id{dev}")] = {
+            "in_case": not flags & STATUS_FLAG_OUT_OF_CASE,
+            "in_ear": bool(flags & STATUS_FLAG_IN_EAR),
+            "cover_open": bool(flags & STATUS_FLAG_COVER_OPEN),
+            "safe_remind": bool(flags & STATUS_FLAG_SAFE_REMIND),
+        }
+    return out
+
+
+def decode_notify_event(payload: bytes, oneplus_branch: bool = False) -> dict:
+    """Decode one 0x0204 push payload: ``[eventId][body...]``.
+
+    Known event ids get a decoded sub-object; anything else keeps the raw body
+    hex. Never treat an unknown event as state proof (subscribe only to what
+    the device advertises).
+    """
+    if not payload:
+        return {}
+    eid = payload[0]
+    body = payload[1:]
+    out: dict = {"event_id": eid,
+                 "event": NOTIFY_NAMES.get(eid, f"event{eid}")}
+    if eid == NOTIFY_BATTERY:
+        out["battery"] = decode_battery_event(body)
+    elif eid == NOTIFY_BUD_STATUS:
+        out["status"] = decode_status_event(body)
+    elif eid == NOTIFY_USER_INTERACTION:
+        out["interaction"] = decode_user_interaction(body, oneplus_branch)
+    else:
+        out["raw"] = body.hex(" ").upper()
+    return out
+
+
+def _fmt_status(status: dict) -> str:
+    """One-line render of a decoded status event, e.g. ``left=in-case``."""
+    parts = []
+    for name in ("left", "right", "case"):
+        if name not in status:
+            continue
+        v = status[name]
+        if name == "case":
+            where = "cover-open" if v["cover_open"] else "cover-closed"
+        elif v["in_ear"]:
+            where = "in-ear"
+        else:
+            where = "in-case" if v["in_case"] else "out-of-case"
+        parts.append(f"{name}={where}")
+    return "  ".join(parts) or "(no components)"
 
 
 def decode_caps(payload: bytes) -> set[int]:

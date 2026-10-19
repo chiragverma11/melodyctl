@@ -5,6 +5,13 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `melodyctl watch` decodes the device's own pushes: `0x0204` event `1` prints as
+  `BATTERY left=50% right=80% case=100%` and event `2` as
+  `STATUS left=out-of-case right=in-case case=cover-open` (gestures unchanged,
+  anything else as raw hex). New `--json` (one object per event, for daemons and
+  widgets) and `-e/--events` (register only the listed ids the device advertises).
+
 ### Changed
 - Gesture support is now one-to-one with HeyMelody across the family:
   `profiles.json` carries every device's `function.control` slots (83/85
@@ -37,6 +44,13 @@ to [Semantic Versioning](https://semver.org/).
   device data rather than app constants (OQ-7); `0x0400` is find mode and
   `0x0405` is compactness detection (OQ-8 partial). Details:
   `docs/research/open-questions.md`.
+- Push channel documented from hardware: capture
+  `docs/protocol/captures/2026-10-19-eti81-notify-push.md`, rewritten
+  `docs/protocol/commands/notifications.md` (app event table, battery and
+  bud-status layouts, status-flag bits, component-order and always-present-case
+  caveats, `0x8202` register-with-value, `batteryRadix` note); OQ-2 resolved
+  (`0x0201` per-event is the family-safe register path) and `0x0109` noted as
+  the app's post-registration command (OQ-8).
 
 ## [1.3.0] - 2026-10-17
 

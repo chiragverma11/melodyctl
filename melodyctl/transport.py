@@ -6,7 +6,7 @@ import socket
 import time
 
 from .errors import MelodyctlError
-from .protocol import CMD_ANC_QUERY, CMD_ANC_SET, CMD_BATT_GET, CMD_CAPS, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD_GESTURES_GET, CMD_GESTURES_SET, CMD_HELLO, CMD_NOTIFY_REG, CMD_NOTIFY_SUB, CMD_SWITCH_FEATURE, CMD_VERSION_GET, COMPONENT, FEATURE_GAME_MODE, RESP_FLAG, decode_caps, decode_gestures, decode_version_records, frame, parse_frames
+from .protocol import CMD_ANC_QUERY, CMD_ANC_SET, CMD_BATT_GET, CMD_CAPS, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD_GESTURES_GET, CMD_GESTURES_SET, CMD_HELLO, CMD_NOTIFY_PUSH, CMD_NOTIFY_REG, CMD_NOTIFY_SUB, CMD_SWITCH_FEATURE, CMD_VERSION_GET, COMPONENT, FEATURE_GAME_MODE, RESP_FLAG, RESP_NOTIFY_REGISTERED, decode_caps, decode_gestures, decode_notify_event, decode_version_records, frame, parse_frames
 
 
 ADDR_DEFAULT = (os.environ.get("MELODYCTL_ADDR")
@@ -23,6 +23,7 @@ class Buds:
         self.timeout = timeout
         self.sock: socket.socket | None = None
         self.seq = 0x20
+        self._pending_events: list[dict] = []
         env = os.environ.get("MELODYCTL_CHANNEL")
         self.channel = channel if channel is not None else (int(env) if env else None)
         self.channel_discovered = False
@@ -120,14 +121,17 @@ class Buds:
         self.seq = (self.seq + 1) & 0xFF
         return self.seq
 
-    def send(self, cmd: int, payload: bytes = b"", wait: float = 2.5) -> list[dict]:
-        """Send one command, return the parsed response frames that match it."""
+    def send_frames(self, cmd: int, payload: bytes = b"", wait: float = 2.5) -> list[dict]:
+        """Send one command and return every parsed reply frame."""
         assert self.sock is not None, "not connected"
         seq = self._next_seq()
         self.sock.sendall(frame(cmd, payload, seq))
-        frames = parse_frames(self._drain(wait))
+        return parse_frames(self._drain(wait))
+
+    def send(self, cmd: int, payload: bytes = b"", wait: float = 2.5) -> list[dict]:
+        """Send one command, return the parsed response frames that match it."""
         want = cmd | RESP_FLAG
-        return [f for f in frames if f["cmd"] == want]
+        return [f for f in self.send_frames(cmd, payload, wait) if f["cmd"] == want]
 
     def raw(self, pkt: bytes, wait: float = 2.5) -> bytes:
         assert self.sock is not None, "not connected"
@@ -218,11 +222,43 @@ class Buds:
         return []
 
     def register_notify(self, events: list[int]) -> dict[int, int | None]:
-        """Register event ids (0x0201). Returns {eventId: ackStatus}."""
+        """Register event ids (0x0201). Returns {eventId: ackStatus}.
+
+        The device may also send 0x8202 with the current value; those frames
+        are buffered so ``iter_events`` can yield them first.
+        """
         out: dict[int, int | None] = {}
+        self._pending_events = []
         for e in events:
-            r = self.send(CMD_NOTIFY_REG, bytes([e & 0xFF]), wait=1.5)
-            out[e] = r[0]["payload"][0] if r and r[0]["payload"] else None
+            frames = self.send_frames(CMD_NOTIFY_REG, bytes([e & 0xFF]), wait=1.5)
+            ack = next((f for f in frames
+                        if f["cmd"] == CMD_NOTIFY_REG | RESP_FLAG), None)
+            out[e] = ack["payload"][0] if ack and ack["payload"] else None
+            self._pending_events += [f for f in frames
+                                     if f["cmd"] == RESP_NOTIFY_REGISTERED]
         return out
+
+    def iter_events(self, drain: float = 1.0, oneplus_branch: bool = False):
+        """Yield decoded pushes until interrupted.
+
+        Live pushes arrive on 0x0204; an asynchronous 0x8202 carries the same
+        event body one byte later (a leading status byte) [apk:j#c].
+        """
+        pending, self._pending_events = self._pending_events, []
+        for f in pending:
+            decoded = decode_notify_event(f["payload"][1:], oneplus_branch)
+            if decoded:
+                yield decoded
+        while True:
+            for f in parse_frames(self._drain(drain)):
+                if f["cmd"] == CMD_NOTIFY_PUSH:
+                    payload = f["payload"]
+                elif f["cmd"] == RESP_NOTIFY_REGISTERED and len(f["payload"]) >= 2:
+                    payload = f["payload"][1:]
+                else:
+                    continue
+                decoded = decode_notify_event(payload, oneplus_branch)
+                if decoded:
+                    yield decoded
 
 

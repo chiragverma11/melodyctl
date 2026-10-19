@@ -13,9 +13,11 @@
 - Prior-art variation: the Buds Pro prefixes the pairs with a one-byte
   component count; Gazz's parser accepts count-prefixed or pair-only payloads
   [prior:gazz@abe70f4] [untested].
-- Unsolicited battery reports (`0x0204`, type `0x01`, count + pairs) are
-  documented by prior art [prior:leaf@feb7b70] [untested]; not observed on
-  ETI81 — see [commands/notifications.md](notifications.md) for `0x0204`.
+- The same body is **pushed** as event `1` of `0x0204`, with the event id where
+  the `0x8106` reply has its status byte [hw:ETI81 2026-10-19]: subscribe with
+  `0x0200` + `0x0201` and the device reports changes on its own. Prior art
+  documented the shape first [prior:leaf@feb7b70] [prior:gazz@abe70f4].
+  See [commands/notifications.md](notifications.md).
 
-Related: `melodyctl battery`, `monitor`; JSON output keeps a flat
+Related: `melodyctl battery`, `monitor`, `watch`; JSON output keeps a flat
 `{left,right,case}` map for widgets.
