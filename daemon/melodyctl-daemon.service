@@ -1,17 +1,18 @@
 [Unit]
-Description=melodyctl battery daemon (HeyMelody-family earbuds, OPOv1/RFCOMM)
+Description=melodyctl daemon (HeyMelody-family earbuds, OPOv1/RFCOMM)
+Documentation=https://github.com/chiragverma11/melodyctl
 After=bluetooth.target
 Wants=bluetooth.target
 
 [Service]
 Type=simple
-# Edit ExecStart to the path of daemon/melodyctl-daemon.py on your machine:
-ExecStart=%h/stuff/melodyctl/daemon/melodyctl-daemon.py
-# Set your earbuds' address (otherwise the built-in maintainer default is used):
+# The installed CLI - `uv tool install` puts the shim in ~/.local/bin. Adjust
+# if your install lives elsewhere (check with `command -v melodyctl`):
+ExecStart=%h/.local/bin/melodyctl daemon
+# Your earbuds' address, if it is not the built-in default:
 # Environment=MELODYCTL_ADDR=6C:0D:E1:5F:DB:4D
-Environment=MELODYCTL_INTERVAL=30
 Restart=on-failure
-RestartSec=10
+RestartSec=5
 
 [Install]
 WantedBy=default.target

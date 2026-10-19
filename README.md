@@ -78,9 +78,12 @@ melodyctl gesture-set both  tap long   vol+      # both ears, hold = volume up
 | `melodyctl game on\|off` | Toggle low-latency game mode |
 | `melodyctl watch` | Live-subscribe to the device's pushes: battery, case/bud state, gestures, game mode, connected devices - timestamped lines, or one JSON object per event with a `ts` field (`--json`); `--reconnect` waits for the buds and reconnects after they drop (`--retry-max` caps the back-off, `-f` registers unadvertised ids for probing) |
 | `melodyctl raw` | Send a raw OPOv1 packet (debugging) |
+| `melodyctl daemon` | Hold the RFCOMM link, publish `state.json` and serve commands ([docs/daemon.md](docs/daemon.md)) |
 
 `devinfo` (raw hex dump) and `eq-set` (EQ preset by protocol index,
 experimental) exist for edge use - `melodyctl --help` lists everything.
+Commands use a running `melodyctl daemon` when there is one and open their own
+session when there is not; `--no-daemon` forces the direct session.
 
 ## Devices & verification
 
@@ -111,23 +114,39 @@ the gesture table and game-mode toggle; the title shows the model actually
 connected (via `melodyctl device`). It finds `melodyctl` on `PATH`, or you can
 point it at a script path in its settings.
 
-## Battery daemon (optional)
+## Daemon (optional)
 
-Publishes battery JSON for status bars/widgets:
+The device allows one RFCOMM connection at a time, and its pushes are
+edge-triggered (reconnecting re-sends nothing), so a link held open is the
+freshest data source there is. `melodyctl daemon` holds it and publishes:
+
+- `$XDG_RUNTIME_DIR/melodyctl/state.json` - battery, case/bud state and game
+  mode as they are pushed, with a `session` field to gate on;
+- `$XDG_RUNTIME_DIR/melodyctl/daemon.sock` - commands and the live event
+  stream, for the CLI and for widgets.
+
+Full contract: [docs/daemon.md](docs/daemon.md).
 
 ```bash
+melodyctl daemon                 # foreground, Ctrl-C to stop
+cat "$XDG_RUNTIME_DIR/melodyctl/state.json"
+
+# or as a systemd user unit:
 git clone https://github.com/chiragverma11/melodyctl   # or use your existing checkout
 mkdir -p ~/.config/systemd/user
 cp melodyctl/daemon/melodyctl-daemon.service ~/.config/systemd/user/
 
 # edit the unit first:
-#   ExecStart=                     -> path of daemon/melodyctl-daemon.py on your machine
+#   ExecStart=                     -> `command -v melodyctl` (uv tool installs to ~/.local/bin)
 #   Environment=MELODYCTL_ADDR=... -> your earbuds' address
 
 systemctl --user daemon-reload
-systemctl --user enable --now melodyctl-daemon.service
-cat "$XDG_RUNTIME_DIR/melodyctl-battery.json"
+systemctl --user enable --now melodyctl-daemon
+journalctl --user -u melodyctl-daemon -f
 ```
+
+Nothing auto-starts it and nothing supervises it: with no daemon running, every
+command opens its own session exactly as before.
 
 ## Errors
 

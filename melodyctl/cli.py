@@ -9,7 +9,7 @@ import sys
 import time
 import traceback
 
-from . import __version__, devices
+from . import __version__, devices, remote
 from .errors import MelodyctlError, classify_error, emit_error
 from .protocol import ACTION_ALIASES, ACTION_NAMES, BUTTON_ALIASES, BUTTON_NAMES, CMD_ANC_QUERY, CMD_BATT_GET, CMD_CAPS, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD_GESTURES_GET, CMD_GESTURES_SET, CMD_INFO, CMD_NOTIFY_REG_MULTI, CMD_SWITCH_FEATURE, CMD_VERSION_GET, EAR, EAR_ALIASES, FUNCTION_ALIASES, FUNCTION_NAMES, MODE_NAMES, NOTIFY_NAMES, _fmt_battery, _fmt_devices, _fmt_status, _fmt_versions, anc_bitmap, decode_anc_bitmap, decode_caps, decode_product_id, decode_version_records, function_name, mask_presets, mask_wires, preset_wire
 from .transport import ADDR_DEFAULT, Buds
@@ -57,6 +57,99 @@ def _session(addr: str, retry: bool, cap: float = 15.0):
         yield conn
     finally:
         conn.close()
+
+
+@contextlib.contextmanager
+def _link(args):
+    """A device session: the daemon's when one is running, else our own link.
+
+    Everything that talks to the device goes through here, so while the daemon
+    runs it keeps the single RFCOMM connection and we never fight it for the
+    socket. With no daemon (or with ``--no-daemon``) this is the direct session
+    the command would have opened anyway.
+    """
+    if not getattr(args, "no_daemon", False):
+        conn = remote.RemoteBuds(args.addr)
+        try:
+            conn.connect()
+        except remote.NoDaemon:
+            pass
+        else:
+            yield conn
+            return
+    with Buds(args.addr) as conn:
+        yield conn
+
+
+def _watch_attached(args) -> int | None:
+    """`watch` through a running daemon: it already holds and re-registers.
+
+    ``--events`` becomes a filter on the daemon's stream; ``--force`` and
+    ``--reconnect`` belong to a session we own, so they are refused/ignored
+    rather than silently doing nothing.
+
+    Returns None when the daemon went away before the stream opened, so the
+    caller can fall back to a direct session (a dead socket is not an error).
+    """
+    if args.force:
+        print("error: --force registers event ids on the device itself, which only "
+              "the daemon's own link can do; stop the daemon (systemctl --user stop "
+              "melodyctl-daemon) or add --no-daemon to probe directly", file=sys.stderr)
+        return 2
+    # Open the stream first: its handshake is fresher than the ping that got us
+    # here, and consuming it keeps it from looking like a reconnect.
+    try:
+        stream = remote.subscribe()
+        hello = next(stream)
+    except (remote.NoDaemon, StopIteration):
+        return None
+    wanted: list[int] | None = None
+    if args.events:
+        try:
+            wanted = [int(x, 0) for x in args.events.replace(",", " ").split()]
+        except ValueError:
+            print(f"error: --events takes event ids like 1 or 1,2 - "
+                  f"got {args.events!r}", file=sys.stderr)
+            return 2
+    registered = hello.get("registered") or []
+    _watch_info(f"attached to the running daemon ({hello.get('device') or 'unknown device'}"
+                f", {hello.get('addr')})", args.json)
+    _watch_info("pushable events: " + (", ".join(
+        f"{e}({NOTIFY_NAMES.get(e, '?')})" for e in registered) or "(none)"), args.json)
+    if wanted:
+        extra = [e for e in wanted if e not in registered]
+        if extra:
+            _watch_info("note: the daemon registers what the device advertises, so "
+                        + ", ".join(str(e) for e in extra) + " cannot be requested; "
+                        "filtering those out", args.json)
+            wanted = [e for e in wanted if e in registered]
+        _watch_info("filtering to: " + ", ".join(str(e) for e in wanted), args.json)
+    waiting = hello.get("session") == "waiting"
+    if waiting:
+        _watch_info("  the daemon is waiting for the earbuds...", args.json)
+    _watch_info("watching for pushes - open/close the case, take the buds out, "
+                "tap them. Ctrl-C to stop.", args.json)
+    while True:
+        try:
+            item = next(stream)
+        except StopIteration:
+            return 0
+        except KeyboardInterrupt:
+            return 130
+        if "event" in item:
+            ev = item["event"]
+            if wanted is not None and ev.get("event_id") not in wanted:
+                continue
+            _watch_line(ev, args.json)
+        elif "session" in item:
+            if item["session"] == "waiting":
+                waiting = True
+                err = (item.get("error") or {}).get("message") or "link lost"
+                _watch_info(f"  [{time.strftime('%H:%M:%S')}] {err}", args.json)
+                _watch_info("  the daemon keeps retrying (Ctrl-C to stop)...", args.json)
+            elif waiting:
+                waiting = False
+                _watch_info("  reconnected - watching again.", args.json)
 
 
 def _watch_line(ev: dict, json_mode: bool) -> None:
@@ -271,6 +364,9 @@ def main(argv: list[str] | None = None) -> int:
                     "over the OPOv1/RFCOMM protocol")
     ap.add_argument("-V", "--version", action="version", version=f"melodyctl {__version__}")
     ap.add_argument("-a", "--addr", default=ADDR_DEFAULT, help="buds Bluetooth address")
+    ap.add_argument("--no-daemon", action="store_true",
+                    help="always open our own RFCOMM session, never use a running "
+                         "melodyctl daemon (which otherwise holds the link)")
     ap.add_argument("--channel", type=int,
                     help="RFCOMM channel override (default: probe 12, 15, then 1-30)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -369,6 +465,13 @@ def main(argv: list[str] | None = None) -> int:
     p_raw = sub.add_parser("raw", help="send a raw hex packet")
     p_raw.add_argument("hex")
 
+    p_daemon = sub.add_parser(
+        "daemon", help="hold the RFCOMM link, publish state.json, serve commands")
+    p_daemon.add_argument("--retry-max", type=float, default=60.0, metavar="SECONDS",
+                          help="cap the reconnect back-off (default 60)")
+    p_daemon.add_argument("-q", "--quiet", action="store_true",
+                          help="no progress output")
+
     args = ap.parse_args(argv)
     if args.channel is not None:
         os.environ["MELODYCTL_CHANNEL"] = str(args.channel)
@@ -377,7 +480,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.cmd == "battery":
-            with Buds(args.addr) as conn:
+            with _link(args) as conn:
                 b = conn.battery()
             if args.json:
                 print(json.dumps({k: b[k]["level"] for k in b}))
@@ -388,7 +491,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.cmd == "monitor":
-            with Buds(args.addr) as conn:
+            with _link(args) as conn:
                 while True:
                     try:
                         b = conn.battery()
@@ -400,7 +503,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.cmd == "devinfo":
-            with Buds(args.addr) as conn:
+            with _link(args) as conn:
                 for f in conn.send(CMD_INFO):
                     print(f"cmd=0x{f['cmd']:04x} payload={f['payload'].hex(' ').upper()}")
                 else:
@@ -408,7 +511,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.cmd == "device":
-            with Buds(args.addr) as conn:
+            with _link(args) as conn:
                 pid = _identify(conn)
                 channel = conn.channel
             profile = devices.profile_for(pid)
@@ -447,7 +550,7 @@ def main(argv: list[str] | None = None) -> int:
                 except Exception as exc:  # noqa: BLE001 - report keeps going
                     return {"error": str(exc)}
 
-            with Buds(args.addr) as conn:
+            with _link(args) as conn:
                 pid = _try(lambda: _identify(conn))
                 if isinstance(pid, dict):
                     pid = None
@@ -488,7 +591,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("anc set: missing mode; run 'melodyctl anc' to list this device's modes",
                       file=sys.stderr)
                 return 2
-            with Buds(args.addr) as conn:
+            with _link(args) as conn:
                 pid = _identify(conn)
                 profile = devices.profile_for(pid)
                 if args.action == "set":
@@ -551,7 +654,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
 
         if args.cmd == "caps":
-            with Buds(args.addr) as conn:
+            with _link(args) as conn:
                 caps = conn.caps()
             if args.json:
                 print(json.dumps(sorted(caps)))
@@ -572,7 +675,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.cmd == "gestures":
-            with Buds(args.addr) as conn:
+            with _link(args) as conn:
                 pid = _identify(conn)
                 profile = devices.profile_for(pid)
                 g = conn.gestures(devices.oneplus_branch(profile))
@@ -621,7 +724,7 @@ def main(argv: list[str] | None = None) -> int:
                           file=sys.stderr)
                 return 2
 
-            with Buds(args.addr) as conn:
+            with _link(args) as conn:
                 pid = _identify(conn)
                 profile = devices.profile_for(pid)
                 problems = _gesture_write_problems(profile, args)
@@ -663,7 +766,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if ok else 1
 
         if args.cmd == "fw":
-            with Buds(args.addr) as conn:
+            with _link(args) as conn:
                 frames = conn.send(CMD_VERSION_GET)
             if not frames:
                 print("no version response", file=sys.stderr)
@@ -680,7 +783,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.cmd == "eq-set":
-            with Buds(args.addr) as conn:
+            with _link(args) as conn:
                 if not _write_gate(_identify(conn), "eq preset", args.force):
                     return 2
                 resp = conn.set_eq(args.index)
@@ -689,7 +792,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if resp else 1
 
         if args.cmd == "game":
-            with Buds(args.addr) as conn:
+            with _link(args) as conn:
                 if not _write_gate(_identify(conn), "game-mode", args.force):
                     return 2
                 resp = conn.set_game_mode(args.state == "on")
@@ -699,6 +802,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if code == 0 else 1
 
         if args.cmd == "watch":
+            if not args.no_daemon and remote.ping() is not None:
+                code = _watch_attached(args)
+                if code is not None:
+                    return code
             with _session(args.addr, args.reconnect, args.retry_max) as conn:
                 pid = _identify(conn)
                 profile = devices.profile_for(pid)
@@ -774,9 +881,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.cmd == "raw":
-            with Buds(args.addr) as conn:
+            with _link(args) as conn:
                 print(conn.raw(bytes.fromhex(args.hex.replace(" ", ""))).hex(" ").upper())
             return 0
+
+        if args.cmd == "daemon":
+            from .daemon import Daemon
+            return Daemon(args.addr, retry_max=args.retry_max,
+                          quiet=args.quiet).run()
     except KeyboardInterrupt:
         # Ctrl-C: exit quietly (no traceback) with the conventional 130.
         return 130

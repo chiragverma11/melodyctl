@@ -21,6 +21,36 @@ PROBE_TIMEOUT = 2.0               # per-channel cap while discovering
 DEAD_ERRNOS = (5, 9, 19, 32, 104, 107, 110, 112, 113)
 
 
+def _event_body(f: dict) -> bytes | None:
+    """Return the notify event body carried by ``f``, or None if it carries none.
+
+    Live pushes arrive on 0x0204; an asynchronous 0x8202 carries the same event
+    body one byte later (a leading status byte) [apk:j#c].
+    """
+    if f["cmd"] == CMD_NOTIFY_PUSH:
+        return f["payload"]
+    if f["cmd"] == RESP_NOTIFY_REGISTERED and len(f["payload"]) >= 2:
+        return f["payload"][1:]
+    return None
+
+
+def decode_push_frame(f: dict, oneplus_branch: bool = False,
+                      product_id: str | None = None) -> dict | None:
+    """Decode one 0x0204/0x8202 frame into an event dict, or None."""
+    body = _event_body(f)
+    if body is None:
+        return None
+    decoded = decode_notify_event(body, oneplus_branch, product_id)
+    if not decoded:
+        return None
+    # keep the wire bytes and the frame that carried them: a capture cannot be
+    # re-verified from decoded values alone, and 0x0204 pushes look identical
+    # to 0x8202 snapshots once the event body is decoded
+    decoded["via"] = f"0x{f['cmd']:04X}"
+    decoded["hex"] = body.hex(" ").upper()
+    return decoded
+
+
 class Buds:
     def __init__(self, addr: str = ADDR_DEFAULT, timeout: float = 10.0,
                  channel: int | None = None) -> None:
@@ -294,46 +324,49 @@ class Buds:
                     product_id: str | None = None):
         """Yield decoded pushes until interrupted or the link dies.
 
-        Live pushes arrive on 0x0204; an asynchronous 0x8202 carries the same
-        event body one byte later (a leading status byte) [apk:j#c]. When the
-        device closes the link this raises ``MelodyctlError(code=
-        "disconnected")`` rather than blocking forever on a dead socket.
-
-        ``product_id`` is only used by the game-mode decoder, whose status byte
-        sits at a per-product offset [apk:j#b].
+        A convenience wrapper over ``read_events`` for callers that do nothing
+        else while watching. Anything that must interleave its own work (the
+        daemon answers client requests) should call ``read_events`` in a loop
+        instead: a generator only returns from ``next()`` when it actually has
+        an event, so on an edge-triggered, mostly-silent device the generator
+        starves whatever else the caller wanted to do.
         """
+        while True:
+            for ev in self.read_events(drain, oneplus_branch, product_id):
+                yield ev
+
+    def read_events(self, wait: float = 1.0, oneplus_branch: bool = False,
+                    product_id: str | None = None) -> list[dict]:
+        """Read for up to ``wait`` seconds and return the decoded pushes.
+
+        Always returns within roughly ``wait`` seconds (a burst of frames keeps
+        the read alive until the device goes quiet for 0.5 s), so a caller can
+        interleave other work between calls. Raises ``MelodyctlError(code=
+        "disconnected")`` when the device closed the link.
+
+        Live pushes arrive on 0x0204; an asynchronous 0x8202 carries the same
+        event body one byte later (a leading status byte) [apk:j#c].
+        """
+        out: list[dict] = []
         pending, self._pending_events = self._pending_events, []
         for f in pending:
-            decoded = decode_notify_event(f["payload"][1:], oneplus_branch, product_id)
+            decoded = decode_push_frame(f, oneplus_branch, product_id)
             if decoded:
-                decoded["via"] = f"0x{f['cmd']:04X}"
-                decoded["hex"] = f["payload"][1:].hex(" ").upper()
-                yield decoded
-        while True:
-            frames = parse_frames(self._drain(drain))
-            for f in frames:
-                if f["cmd"] == CMD_NOTIFY_PUSH:
-                    payload = f["payload"]
-                elif f["cmd"] == RESP_NOTIFY_REGISTERED and len(f["payload"]) >= 2:
-                    payload = f["payload"][1:]
-                else:
-                    continue
-                decoded = decode_notify_event(payload, oneplus_branch, product_id)
-                if decoded:
-                    # keep the wire bytes and the frame that carried them: a
-                    # capture cannot be re-verified from decoded values alone,
-                    # and 0x0204 pushes look identical to 0x8202 snapshots once
-                    # the event body is decoded
-                    decoded["via"] = f"0x{f['cmd']:04X}"
-                    decoded["hex"] = payload.hex(" ").upper()
-                    yield decoded
-            if self.lost:
-                raise MelodyctlError(
-                    f"the earbuds closed the connection ({self.lost})",
-                    code="disconnected",
-                    hint="They do this when they idle, or go back in the case "
-                         "with the lid closed. Start 'melodyctl watch' again, or "
-                         "pass '--reconnect' to sit through it and keep watching.",
-                )
+                out.append(decoded)
+        for f in parse_frames(self._drain(wait)):
+            decoded = decode_push_frame(f, oneplus_branch, product_id)
+            if decoded:
+                out.append(decoded)
+        # A push that arrived just before the peer closed is still real data:
+        # hand it over, and let the next call report the disconnect.
+        if self.lost and not out:
+            raise MelodyctlError(
+                f"the earbuds closed the connection ({self.lost})",
+                code="disconnected",
+                hint="They do this when they idle, or go back in the case "
+                     "with the lid closed. Start 'melodyctl watch' again, or "
+                     "pass '--reconnect' to sit through it and keep watching.",
+            )
+        return out
 
 

@@ -20,6 +20,21 @@ to [Semantic Versioning](https://semver.org/).
   per-product offset the app uses), and it pushes the event **unsolicited**:
   the device refuses `0x0201 [05]` and does not advertise id `5`, yet sends it
   anyway (claims #48/#49, OQ-15 resolved).
+- `melodyctl daemon` — holds the single RFCOMM link, registers the device's
+  pushes, and publishes them two ways: `$XDG_RUNTIME_DIR/melodyctl/state.json`
+  (atomic, heartbeat `ts`, `session` field to gate on) and a line-delimited
+  JSON socket at `$XDG_RUNTIME_DIR/melodyctl/daemon.sock` (`ping`, `state`,
+  `send`, `raw`, `subscribe`). Every command uses the daemon when one is
+  running and opens its own session when not, so nothing changes without it;
+  `--no-daemon` forces the direct session. Contract: `docs/daemon.md`.
+- `daemon/melodyctl-daemon.service` — systemd **user** unit for the daemon
+  (opt-in; nothing auto-starts or supervises it).
+
+### Changed
+- The daemon writes `null` for `status`/`game` until the device actually says
+  something: neither has a query, so a reconnect cannot invent a value.
+- Removed `daemon/melodyctl-daemon.py`, the 30 s battery poller it replaces
+  (it wrote `melodyctl-battery.json`, which nothing read).
 
 ## [1.4.0] - 2026-10-19
 

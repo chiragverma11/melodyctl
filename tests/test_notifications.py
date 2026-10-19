@@ -7,6 +7,7 @@ these after `0x0200` + `0x0201` registration; nothing was polled.
 Run: python3 -m unittest discover -s tests -t .
 """
 import socket
+import time
 import unittest
 
 from melodyctl import protocol as m
@@ -264,6 +265,16 @@ class TestLinkLoss(unittest.TestCase):
         conn = self._conn(_FakeSock(quiet))
         with self.assertRaises(AssertionError):
             next(conn.iter_events(0.05))
+
+    def test_read_events_returns_when_the_device_is_quiet(self):
+        # The daemon interleaves client requests between reads: a read must
+        # come back even when no push arrives, or a silent device starves it.
+        def quiet():
+            raise socket.timeout()
+        conn = self._conn(_FakeSock(quiet))
+        started = time.time()
+        self.assertEqual(conn.read_events(0.2), [])
+        self.assertLess(time.time() - started, 1.0)
 
     def test_a_queued_push_is_delivered_before_the_error(self):
         # The peer can close right after a real push; the push must not be lost.

@@ -40,7 +40,9 @@ Enco Buds (ETI81, product id `062410`)** unless a claim says otherwise.
   Leaf-lsgtky/OppoPods has **no licence** — facts with citation only, never code.
 - CLI is stdlib-only; install via `uv tool install` (see README). Keep it that way.
 - Errors: short title + Details; single-line JSON under `--json`; never tracebacks.
-- One RFCOMM connection at a time — serialise all device access.
+- One RFCOMM connection at a time — serialise all device access. A running
+  `melodyctl daemon` owns the link; every command routes through it and
+  `--no-daemon` forces a direct session.
 - DMS plugin version lives in `dms-plugins/melodyctl/plugin.json` and is bumped
   only when the owner asks for a plugin release; CLI versions live in
   `pyproject.toml` + `melodyctl/__init__.py`.
@@ -57,7 +59,7 @@ Enco Buds (ETI81, product id `062410`)** unless a claim says otherwise.
 | `docs/` | protocol, devices, research, findings — the truth |
 | `tools/` | probes (`rfcomm_scan`, `opo_probe`, …), decrypt + generators |
 | `tests/` | stdlib unittest: golden decoders (ETI81 captures), Phase 4 refactor regression |
-| `daemon/` | optional battery daemon for bars |
+| `daemon/` | systemd user unit for `melodyctl daemon` (holds the RFCOMM link, publishes `state.json`, serves commands - see `docs/daemon.md`) |
 
 ## On-hardware recipes
 
