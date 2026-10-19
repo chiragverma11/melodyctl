@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.5.0] - 2026-10-19
 
 ### Added
 - `melodyctl gesture-set --list --json [--product <id>]` - the gesture
@@ -33,6 +33,13 @@ to [Semantic Versioning](https://semver.org/).
 ### Changed
 - The daemon writes `null` for `status`/`game` until the device actually says
   something: neither has a query, so a reconnect cannot invent a value.
+- The daemon heartbeats `ts` while it is `waiting` too, so a stale `ts` always
+  means the daemon is gone - a reader can judge freshness on `ts` alone.
+- The session thread drives the link with `Buds.read_events`, a plain call that
+  returns after one drain window (`iter_events` is now a generator over it).
+  A generator only returns from `next()` once it has decoded an event, so on a
+  silent, edge-triggered device the daemon stopped answering client requests
+  until the next push (measured: 94 s).
 - Removed `daemon/melodyctl-daemon.py`, the 30 s battery poller it replaces
   (it wrote `melodyctl-battery.json`, which nothing read).
 

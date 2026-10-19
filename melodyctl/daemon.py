@@ -277,13 +277,19 @@ class Daemon:
                 # Answer queued clients while we back off, and treat a client
                 # that is actively asking as a reason to try again right away
                 # (a polling widget would otherwise wait out the whole back-off
-                # before the buds are noticed).
+                # before the buds are noticed). The heartbeat runs here too, so
+                # `ts` always means "the daemon is alive and this is its latest
+                # word" - a reader judges freshness on that alone.
                 deadline = time.time() + delay
+                last_write = time.time()
                 demand = False
                 while not self.stop.is_set() and time.time() < deadline:
                     if self._fail_jobs(err, wait=0.5):
                         demand = True
                         break
+                    if time.time() - last_write >= self.heartbeat:
+                        self._write_state()
+                        last_write = time.time()
                 delay = 2.0 if demand else min(delay * 2, self.retry_max)
 
     def _hold(self) -> None:

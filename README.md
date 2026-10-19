@@ -24,7 +24,7 @@ time.
 uv tool install --python /usr/bin/python3 git+https://github.com/chiragverma11/melodyctl
 
 # pin a release (append @vX.Y.Z to the URL)
-uv tool install --python /usr/bin/python3 "git+https://github.com/chiragverma11/melodyctl@v1.4.0"
+uv tool install --python /usr/bin/python3 "git+https://github.com/chiragverma11/melodyctl@v1.5.0"
 
 # alternatives
 pipx install git+https://github.com/chiragverma11/melodyctl   # pipx also works
@@ -111,8 +111,11 @@ A **DankMaterialShell** (Quickshell) widget lives in the
 [`dms-plugins`](https://github.com/chiragverma11/dms-plugins/tree/main/melodyctl)
 repo. It shows the battery in the bar, refreshes on open, and has a popout with
 the gesture table and game-mode toggle; the title shows the model actually
-connected (via `melodyctl device`). It finds `melodyctl` on `PATH`, or you can
-point it at a script path in its settings.
+connected (via `melodyctl device`). With a `melodyctl daemon` running it reads
+push state instead - battery, charging, bud/lid state and game mode update as
+the buds report them, without the widget opening a connection of its own. With
+no daemon it polls `melodyctl battery --json-full`, exactly as before. It finds
+`melodyctl` on `PATH`, or you can point it at a script path in its settings.
 
 ## Daemon (optional)
 

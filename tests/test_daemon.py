@@ -13,6 +13,7 @@ import time
 import unittest
 
 from melodyctl import daemon, remote
+from melodyctl.errors import MelodyctlError
 from melodyctl.protocol import CMD_BATT_GET, CMD_INFO, RESP_FLAG
 from melodyctl.transport import Buds
 
@@ -236,6 +237,41 @@ class Jobs(Base):
 
 
 class Session(Base):
+    def test_waiting_keeps_the_heartbeat_alive(self):
+        # docs/daemon.md promises ts is rewritten at least every 60 s; a
+        # reader (the widget) judges freshness on ts alone, so the back-off
+        # path has to heartbeat too or a waiting daemon looks dead.
+        d = daemon.Daemon(quiet=True)
+        d.acquire_lock()
+        self.addCleanup(d.release_lock)
+        d.heartbeat = 0.05
+
+        def hold():
+            raise MelodyctlError("Host is down", code="unreachable")
+        d._hold = hold
+        thread = threading.Thread(target=d._session_loop, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 2.0)
+        self.addCleanup(d.stop.set)
+
+        def read_ts():
+            try:
+                return json.loads(daemon.state_path().read_text())["ts"]
+            except (OSError, ValueError, KeyError):
+                return None
+
+        deadline = time.time() + 3.0
+        first = None
+        while first is None and time.time() < deadline:
+            first = read_ts()
+            time.sleep(0.02)
+        self.assertIsNotNone(first)
+        second = first
+        while second <= first and time.time() < deadline:
+            time.sleep(0.05)
+            second = read_ts() or second
+        self.assertGreater(second, first)
+
     def test_jobs_are_served_while_the_device_is_silent(self):
         # Regression: pushes are edge-triggered, and iter_events is a generator
         # that only returns from next() once it has an event - a loop that
