@@ -5,6 +5,20 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `melodyctl gesture-set --list --json [--product <id>]` - the gesture
+  vocabulary plus one model's allowed combos as a single JSON object. It is
+  offline (whitelist profile, no RFCOMM link), so a front-end can render a
+  per-model editor from the product id it already read with `device --json`
+  without competing for the one connection; `gesture-set` writes now also emit
+  one JSON result object under `--json` (errors included, as `{"error": ...}`).
+- `melodyctl watch --retry-max <seconds>` caps the reconnect back-off (the
+  daemon will want more than the 15 s default) and `watch -f/--force` registers
+  event ids the device does not advertise, for probing only.
+- `melodyctl watch` decodes push event `5` (game mode), including the
+  per-product status-byte offset. App-derived: no device has pushed it for us
+  yet and ETI81 does not advertise id `5` (OQ-15).
+
 ## [1.4.0] - 2026-10-19
 
 ### Added

@@ -112,6 +112,50 @@ class WriteChecks(unittest.TestCase):
             cli._gesture_write_problems(p, self._args(button=5, action=1, function=1)), [])
 
 
+class ListJson(unittest.TestCase):
+    """cli._gesture_json: the offline vocabulary + per-product slot table."""
+
+    def test_eti81_slots_and_vocabulary(self):
+        from melodyctl import cli
+        d = cli._gesture_json(devices.profile_for("062410"), "062410")
+        self.assertEqual(d["product_id"], "062410")
+        self.assertTrue(d["verified"])
+        self.assertFalse(d["oneplus_branch"])
+        slots = {(s["button"], s["action"]): s for s in d["slots"]}
+        self.assertEqual([f["function"] for f in slots[(1, 3)]["functions"]], [0, 3, 17])
+        self.assertEqual([f["function"] for f in slots[(1, 2)]["functions"]], [0, 1, 5, 6])
+        # the mask-less action 12 row is not a writable slot
+        self.assertNotIn((1, 12), slots)
+        names = {f["id"]: f["name"] for f in d["vocabulary"]["functions"]}
+        self.assertEqual(names[17], "game mode")
+        self.assertEqual([e["name"] for e in d["vocabulary"]["ears"]], ["left", "right", "both"])
+
+    def test_oneplus_branch_names_and_codes(self):
+        from melodyctl import cli
+        d = cli._gesture_json(devices.profile_for("060414"), "060414")
+        self.assertTrue(d["oneplus_branch"])
+        names = {f["id"]: f["name"] for f in d["vocabulary"]["functions"]}
+        self.assertEqual(names[4], "previous song")
+        self.assertEqual(names[5], "next song")
+        slots = {(s["button"], s["action"]): s for s in d["slots"]}
+        self.assertEqual([f["function"] for f in slots[(1, 2)]["functions"]], [1, 4, 5, 3])
+
+    def test_preset_without_wire_code_is_null(self):
+        from melodyctl import cli
+        profile = {"name": "Synthetic", "caps": {"gestures": [
+            {"action": 1, "support": 0x4000 | 0x4}]}}
+        got = {f["bit"]: f["function"] for f in cli._gesture_json(profile, None)["slots"][0]["functions"]}
+        self.assertIsNone(got[0x4000])   # enter pairing: the app offers it, no wire code
+        self.assertEqual(got[0x4], 1)
+
+    def test_no_product_is_vocabulary_only(self):
+        from melodyctl import cli
+        d = cli._gesture_json(None, None)
+        self.assertIsNone(d["product_id"])
+        self.assertEqual(d["slots"], [])
+        self.assertTrue(d["vocabulary"]["actions"])
+
+
 class Profiles(unittest.TestCase):
     def test_gesture_tables_present(self):
         covered = [p for p in devices.PROFILES.values() if devices.gesture_slots(p)]

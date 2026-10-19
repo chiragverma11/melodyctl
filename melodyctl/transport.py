@@ -290,17 +290,21 @@ class Buds:
         return {"style": "per-event", "acks": acks,
                 "bulk_attempted": bulk_attempted}
 
-    def iter_events(self, drain: float = 1.0, oneplus_branch: bool = False):
+    def iter_events(self, drain: float = 1.0, oneplus_branch: bool = False,
+                    product_id: str | None = None):
         """Yield decoded pushes until interrupted or the link dies.
 
         Live pushes arrive on 0x0204; an asynchronous 0x8202 carries the same
         event body one byte later (a leading status byte) [apk:j#c]. When the
         device closes the link this raises ``MelodyctlError(code=
         "disconnected")`` rather than blocking forever on a dead socket.
+
+        ``product_id`` is only used by the game-mode decoder, whose status byte
+        sits at a per-product offset [apk:j#b].
         """
         pending, self._pending_events = self._pending_events, []
         for f in pending:
-            decoded = decode_notify_event(f["payload"][1:], oneplus_branch)
+            decoded = decode_notify_event(f["payload"][1:], oneplus_branch, product_id)
             if decoded:
                 decoded["via"] = f"0x{f['cmd']:04X}"
                 decoded["hex"] = f["payload"][1:].hex(" ").upper()
@@ -314,7 +318,7 @@ class Buds:
                     payload = f["payload"][1:]
                 else:
                     continue
-                decoded = decode_notify_event(payload, oneplus_branch)
+                decoded = decode_notify_event(payload, oneplus_branch, product_id)
                 if decoded:
                     # keep the wire bytes and the frame that carried them: a
                     # capture cannot be re-verified from decoded values alone,

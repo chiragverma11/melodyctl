@@ -108,6 +108,49 @@ Wireless Z3 (`051014`) uses `button: 5` [wl]. The full tables ship in
 validates the requested combo against the connected device's slots before
 writing (`--force` bypasses the check).
 
+### Machine-readable list (`gesture-set --list --json`)
+
+`melodyctl gesture-set --list` prints the vocabulary as text; with `--json` it
+prints one object instead, and with `--product <id>` it adds that whitelist
+profile's slots. This is the interface a front-end uses to render a per-model
+editor — it is **offline** (no RFCOMM link, no device needed), so a widget that
+already ran `melodyctl device --json` can look the table up by product id
+without competing for the single connection.
+
+```json
+{
+  "product_id": "062410", "device": "OPPO Enco Buds", "brand": "oppo",
+  "verified": true, "oneplus_branch": false,
+  "vocabulary": {
+    "ears":      [{"id": 1, "name": "left"}, ...],
+    "buttons":   [{"id": 1, "name": "tap/touch"}, ...],
+    "actions":   [{"id": 1, "name": "single tap"}, ...],
+    "functions": [{"id": 17, "name": "game mode"}, ...]
+  },
+  "slots": [
+    {"button": 1, "action": 3, "ear": 2, "functions": [
+      {"bit": 512, "name": "none", "function": 0},
+      {"bit": 1, "name": "voice assistant", "function": 3},
+      {"bit": 8192, "name": "game mode", "function": 17}
+    ]}
+  ]
+}
+```
+
+- `slots` is keyed by `(button, action)` and mirrors what the write path
+  accepts: a slot with no `support` mask (e.g. ETI81 action 12) is omitted, and
+  `function: null` marks a preset the app offers but that has no wire code
+  (`enter pairing`, `clear pairing history`), so it can never be written.
+- `ear` is the whitelist's own ear field (informational — writes still carry the
+  ear the user picked).
+- `functions` in `vocabulary` and the codes inside `slots` already account for
+  the OnePlus branch (`oneplus_branch: true`), so `previous song` is code 5
+  there and code 4 on the branch models.
+- Without `--product` the object still carries the vocabulary, with
+  `product_id: null` and `slots: []`. An id that is not in the whitelist is a
+  usage error (`probe: {"error": {"code": "unknown_device", ...}}` under
+  `--json`).
+
 ### Allowed combinations on ETI81
 
 From the whitelist `control` support masks [wl:062410]:

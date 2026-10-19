@@ -36,11 +36,13 @@ FEATURE_GAME_MODE = 6
 # ids with no parser are logged and dropped, so an unlisted id is not state.
 NOTIFY_BATTERY = 1               # [count][(component, level|charging<<7)...]
 NOTIFY_BUD_STATUS = 2            # [count][(component, flags)...]
+NOTIFY_GAME_MODE = 5             # status byte; offset varies by product
 NOTIFY_USER_INTERACTION = 0xF1   # 241: user tapped a bud
 NOTIFY_CONNECTED_DEVICES = 0xF2  # 242: list of devices connected to the buds
 NOTIFY_NAMES = {
     NOTIFY_BATTERY: "battery", NOTIFY_BUD_STATUS: "bud_status",
-    3: "noise_mode", 4: "compactness", 5: "game_mode", 6: "multi_connect",
+    3: "noise_mode", 4: "compactness", NOTIFY_GAME_MODE: "game_mode",
+    6: "multi_connect",
     8: "hearing_detect", 10: "zen_mode", 11: "personalized_nc",
     13: "triangle_info", 14: "ear_scan", 15: "public_event", 16: "oneshot",
     17: "tone_change",
@@ -381,18 +383,42 @@ def decode_connected_devices_event(body: bytes) -> list[dict]:
     return out
 
 
+# Product ids whose game-mode push (event 5) carries its status byte one byte
+# further in - payload[2] instead of payload[1] [apk:j#b]. ETI81's own id is in
+# the set, which makes it the one we can actually probe on hardware.
+GAME_MODE_STATE_INDEX = {"062410", "062810", "063410", "063010"}
+
+
+def decode_game_mode_event(body: bytes, product_id: str | None = None) -> dict:
+    """Decode a pushed game-mode event body (0x0204 type 5).
+
+    The body is ``[state]`` on most products and ``[?, state]`` on the four ids
+    in ``GAME_MODE_STATE_INDEX`` [apk:j#b]. The status byte is a flag (non-zero
+    = on); no capture has been taken yet, so this stays app-derived until a
+    device actually pushes event `5` (see `docs/research/open-questions.md`).
+    """
+    index = 1 if product_id and product_id.upper() in GAME_MODE_STATE_INDEX else 0
+    if len(body) <= index:
+        return {}
+    return {"on": bool(body[index]), "state": body[index]}
+
+
 def notify_register_payload(events: list[int]) -> bytes:
     """0x0205 bulk-register payload: ``[count][eventId...]`` [apk:j#c]."""
     ev = [e & 0xFF for e in events]
     return bytes([len(ev)]) + bytes(ev)
 
 
-def decode_notify_event(payload: bytes, oneplus_branch: bool = False) -> dict:
+def decode_notify_event(payload: bytes, oneplus_branch: bool = False,
+                        product_id: str | None = None) -> dict:
     """Decode one 0x0204 push payload: ``[eventId][body...]``.
 
     Known event ids get a decoded sub-object; anything else keeps the raw body
     hex. Never treat an unknown event as state proof (subscribe only to what
     the device advertises).
+
+    ``product_id`` only matters for event `5` (game mode), whose status byte
+    sits at a per-product offset [apk:j#b].
     """
     if not payload:
         return {}
@@ -408,6 +434,8 @@ def decode_notify_event(payload: bytes, oneplus_branch: bool = False) -> dict:
         out["interaction"] = decode_user_interaction(body, oneplus_branch)
     elif eid == NOTIFY_CONNECTED_DEVICES:
         out["devices"] = decode_connected_devices_event(body)
+    elif eid == NOTIFY_GAME_MODE:
+        out["game"] = decode_game_mode_event(body, product_id)
     else:
         out["raw"] = body.hex(" ").upper()
     return out

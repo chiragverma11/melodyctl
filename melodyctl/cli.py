@@ -30,7 +30,8 @@ def _retry_log(attempt: int, exc: BaseException, delay: float) -> None:
               file=sys.stderr, flush=True)
 
 
-def _connect_retrying(conn: Buds, retry: bool, delay: float = 2.0) -> None:
+def _connect_retrying(conn: Buds, retry: bool, delay: float = 2.0,
+                      cap: float = 15.0) -> None:
     """Connect, waiting for the device to come back when ``retry`` is set."""
     attempt = 0
     while True:
@@ -44,14 +45,14 @@ def _connect_retrying(conn: Buds, retry: bool, delay: float = 2.0) -> None:
                 raise
             _retry_log(attempt, exc, delay)
             time.sleep(delay)
-            delay = min(delay * 2, 15.0)
+            delay = min(delay * 2, cap)
 
 
 @contextlib.contextmanager
-def _session(addr: str, retry: bool):
+def _session(addr: str, retry: bool, cap: float = 15.0):
     """A Buds session that can wait for the device to appear, then closes."""
     conn = Buds(addr)
-    _connect_retrying(conn, retry)
+    _connect_retrying(conn, retry, cap=cap)
     try:
         yield conn
     finally:
@@ -77,6 +78,10 @@ def _watch_line(ev: dict, json_mode: bool) -> None:
                   f"({d.get('function')}) scene={d.get('scene')}")
     elif "devices" in ev:
         label, detail = "DEVICES", _fmt_devices(ev["devices"])
+    elif "game" in ev:
+        g = ev["game"]
+        label = "GAME"
+        detail = ("on" if g.get("on") else "off") if g else "(no state byte)"
     else:
         label, detail = "EVENT", f"{ev['event']}: {ev.get('raw', '')}"
     print(f"  [{stamp}] {label:<9} {detail}", flush=True)
@@ -99,6 +104,15 @@ def _resolve_int(value: str, aliases: dict[str, int], kind: str) -> int:
         opts = ", ".join(sorted(aliases))
         raise argparse.ArgumentTypeError(
             f"invalid {kind} {value!r}; use a number or one of: {opts}") from None
+
+
+def _product_id(value: str) -> str:
+    """Normalise a product id (``062410``, ``0x062410``, ``62410``) to 6 hex digits."""
+    key = value.strip().lower().removeprefix("0x").replace(":", "").replace(" ", "")
+    if not key or any(c not in "0123456789abcdef" for c in key) or len(key) > 6:
+        raise argparse.ArgumentTypeError(
+            f"invalid product id {value!r}; expected six hex digits, e.g. 062410")
+    return key.zfill(6).upper()
 
 
 def _gesture_tables() -> str:
@@ -129,6 +143,45 @@ def _gesture_tables() -> str:
     out.append("  melodyctl gesture-set both tap long vol+        # both long press -> volume up")
     out.append("  melodyctl gesture-set left pinch double play    # left double pinch -> play/pause")
     return "\n".join(out)
+
+
+def _gesture_json(profile: dict | None, product_id: str | None) -> dict:
+    """Machine-readable gesture vocabulary, plus one product's allowed combos.
+
+    Deliberately offline: the slots come from the whitelist profile, not the
+    device, so a widget that already ran `melodyctl device --json` can render
+    the per-model editor without opening a second RFCOMM link. `function: null`
+    marks a preset the app offers but has no wire code for (so the CLI can
+    never write it either).
+    """
+    op = devices.oneplus_branch(profile)
+    slots: list[dict] = []
+    for slot in devices.gesture_slots(profile):
+        mask = slot.get("support")
+        if not mask:
+            continue
+        slots.append({
+            "button": slot.get("button") or 1,
+            "action": slot.get("action"),
+            "ear": slot.get("ear"),
+            "functions": [{"bit": bit, "name": preset, "function": preset_wire(bit, op)}
+                          for bit, preset in mask_presets(mask)],
+        })
+    return {
+        "product_id": product_id,
+        "device": profile.get("name") if profile else None,
+        "brand": profile.get("brand") if profile else None,
+        "verified": devices.is_verified(product_id),
+        "oneplus_branch": op,
+        "vocabulary": {
+            "ears": [{"id": k, "name": v} for k, v in sorted(EAR.items())],
+            "buttons": [{"id": k, "name": v} for k, v in sorted(BUTTON_NAMES.items())],
+            "actions": [{"id": k, "name": v} for k, v in sorted(ACTION_NAMES.items())],
+            "functions": [{"id": k, "name": function_name(k, op)}
+                          for k in sorted(FUNCTION_NAMES)],
+        },
+        "slots": slots,
+    }
 
 
 def _gesture_write_problems(profile: dict | None, args) -> list[str]:
@@ -174,15 +227,20 @@ def _identify(conn: Buds) -> str | None:
     return decode_product_id(resp[0]["payload"]) if resp else None
 
 
-def _write_gate(pid: str | None, action: str, force: bool) -> bool:
+def _write_gate(pid: str | None, action: str, force: bool,
+                json_mode: bool = False) -> bool:
     """Enforce the write gate: verified profiles only. False = refused (printed)."""
     refusal = devices.write_refusal(pid, action)
     if refusal is None:
         return True
     if force:
-        print(f"warning: {refusal} sending anyway (--force)", file=sys.stderr)
+        if not json_mode:
+            print(f"warning: {refusal} sending anyway (--force)", file=sys.stderr)
         return True
-    print(f"error: {refusal} re-run with --force to send anyway.", file=sys.stderr)
+    if json_mode:
+        emit_error(MelodyctlError(refusal, code="unverified"), True)
+    else:
+        print(f"error: {refusal} re-run with --force to send anyway.", file=sys.stderr)
     return False
 
 
@@ -265,6 +323,12 @@ def main(argv: list[str] | None = None) -> int:
                            "or the product id is unverified")
     p_gs.add_argument("-l", "--list", action="store_true",
                       help="print the gesture value tables and exit (no device connection)")
+    p_gs.add_argument("-p", "--product", type=_product_id, metavar="ID",
+                      help="with --list: the whitelist profile to list allowed combos for, "
+                           "e.g. 062410 (offline - no device connection)")
+    p_gs.add_argument("--json", action="store_true",
+                      help="machine-readable output: the vocabulary + slot table with "
+                           "--list, or one result object for a write")
 
     p_fw = sub.add_parser("fw", help="read component versions (buds/case firmware)")
     p_fw.add_argument("--json", action="store_true")
@@ -292,6 +356,13 @@ def main(argv: list[str] | None = None) -> int:
     p_watch.add_argument("--reconnect", action="store_true",
                          help="wait for the earbuds at startup and reconnect "
                               "whenever they drop (they do when cased/idle)")
+    p_watch.add_argument("--retry-max", type=float, default=15.0, metavar="SECONDS",
+                         help="cap the reconnect back-off (default 15; a daemon "
+                              "watching for hours wants something larger)")
+    p_watch.add_argument("-f", "--force", action="store_true",
+                         help="register event ids even when the device does not "
+                              "advertise them (for probing only - an unadvertised "
+                              "push is not state proof)")
 
     p_raw = sub.add_parser("raw", help="send a raw hex packet")
     p_raw.add_argument("hex")
@@ -514,17 +585,38 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.cmd == "gesture-set":
             if args.list:
-                print(_gesture_tables())
+                if not args.json:
+                    print(_gesture_tables())
+                    return 0
+                profile = None
+                if args.product:
+                    profile = devices.profile_for(args.product)
+                    if profile is None:
+                        emit_error(MelodyctlError(
+                            f"product id {args.product} is not in the HeyMelody "
+                            f"whitelist, so there is no slot table to list",
+                            code="unknown_device"), True)
+                        return 2
+                print(json.dumps(_gesture_json(profile, args.product)))
                 return 0
             missing = [n for n, v in (("ear", args.ear), ("button", args.button),
                                       ("action", args.action), ("function", args.function))
                        if v is None]
             if missing:
-                print(f"gesture-set: missing {'/'.join(missing)}; "
-                      f"run 'melodyctl gesture-set --list' to see values", file=sys.stderr)
+                if args.json:
+                    emit_error(MelodyctlError(
+                        f"missing {'/'.join(missing)}", code="usage"), True)
+                else:
+                    print(f"gesture-set: missing {'/'.join(missing)}; "
+                          f"run 'melodyctl gesture-set --list' to see values", file=sys.stderr)
                 return 2
             if args.ear not in EAR:
-                print(f"error: ear {args.ear} is not 1=left/2=right/4=both", file=sys.stderr)
+                if args.json:
+                    emit_error(MelodyctlError(
+                        f"ear {args.ear} is not 1=left/2=right/4=both", code="usage"), True)
+                else:
+                    print(f"error: ear {args.ear} is not 1=left/2=right/4=both",
+                          file=sys.stderr)
                 return 2
 
             with Buds(args.addr) as conn:
@@ -532,25 +624,40 @@ def main(argv: list[str] | None = None) -> int:
                 profile = devices.profile_for(pid)
                 problems = _gesture_write_problems(profile, args)
                 if problems and not args.force:
-                    for p in problems:
-                        print(f"error: {p}", file=sys.stderr)
-                    print("       re-run with --force to send anyway.", file=sys.stderr)
+                    if args.json:
+                        emit_error(MelodyctlError("; ".join(problems), code="profile"), True)
+                    else:
+                        for p in problems:
+                            print(f"error: {p}", file=sys.stderr)
+                        print("       re-run with --force to send anyway.", file=sys.stderr)
                     return 2
                 for p in problems:
-                    print(f"warning: {p} (sending anyway due to --force)", file=sys.stderr)
-                if not _write_gate(pid, "gesture", args.force):
+                    if not args.json:
+                        print(f"warning: {p} (sending anyway due to --force)", file=sys.stderr)
+                if not _write_gate(pid, "gesture", args.force, args.json):
                     return 2
                 resp = conn.set_gesture(args.ear, args.button, args.action, args.function)
             if not resp:
-                print("no ack (command unsupported or rejected)", file=sys.stderr)
+                emit_error(MelodyctlError("no ack (command unsupported or rejected)",
+                                          code="no_ack"), args.json)
                 return 1
             acks = [r["payload"][0] if r["payload"] else None for r in resp]
             ok = bool(acks) and all(a == 0 for a in acks)
             op = devices.oneplus_branch(profile)
             fn = function_name(args.function, op)
-            print(f"set ear={EAR.get(args.ear, args.ear)} button={BUTTON_NAMES.get(args.button, args.button)} "
-                  f"action={ACTION_NAMES.get(args.action, args.action)} "
-                  f"function={fn} -> ack {acks} ({'ok' if ok else 'rejected'})")
+            if args.json:
+                print(json.dumps({
+                    "ok": ok,
+                    "acks": acks,
+                    "ear": {"id": args.ear, "name": EAR.get(args.ear, str(args.ear))},
+                    "button": {"id": args.button, "name": BUTTON_NAMES.get(args.button)},
+                    "action": {"id": args.action, "name": ACTION_NAMES.get(args.action)},
+                    "function": {"id": args.function, "name": fn},
+                }))
+            else:
+                print(f"set ear={EAR.get(args.ear, args.ear)} button={BUTTON_NAMES.get(args.button, args.button)} "
+                      f"action={ACTION_NAMES.get(args.action, args.action)} "
+                      f"function={fn} -> ack {acks} ({'ok' if ok else 'rejected'})")
             return 0 if ok else 1
 
         if args.cmd == "fw":
@@ -590,8 +697,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if code == 0 else 1
 
         if args.cmd == "watch":
-            with _session(args.addr, args.reconnect) as conn:
-                profile = devices.profile_for(_identify(conn))
+            with _session(args.addr, args.reconnect, args.retry_max) as conn:
+                pid = _identify(conn)
+                profile = devices.profile_for(pid)
                 op = devices.oneplus_branch(profile)
                 advertised = conn.notify_caps()
                 # The app registers with one 0x0205 when the device advertises
@@ -606,12 +714,17 @@ def main(argv: list[str] | None = None) -> int:
                               f"got {args.events!r}", file=sys.stderr)
                         return 2
                     skipped = [e for e in wanted if e not in advertised]
-                    if skipped:
+                    if skipped and not args.force:
                         # subscribe only to what the device advertises
                         print("warning: device does not advertise event "
                               + ", ".join(str(e) for e in skipped)
                               + "; not registering those", file=sys.stderr)
                         wanted = [e for e in wanted if e in advertised]
+                    elif skipped:
+                        _watch_info("warning: registering event "
+                                    + ", ".join(str(e) for e in skipped)
+                                    + " though the device does not advertise it - "
+                                    "probing only, not state proof", args.json)
                 _watch_info("pushable events: " + (", ".join(
                     f"{e}({NOTIFY_NAMES.get(e, '?')})" for e in advertised)
                     or "(none)"), args.json)
@@ -632,7 +745,7 @@ def main(argv: list[str] | None = None) -> int:
                             "buds out, tap them. Ctrl-C to stop.", args.json)
                 while True:
                     try:
-                        for ev in conn.iter_events(1.0, op):
+                        for ev in conn.iter_events(1.0, op, pid):
                             _watch_line(ev, args.json)
                         return 0         # only on a clean stop
                     except MelodyctlError as exc:
@@ -652,7 +765,7 @@ def main(argv: list[str] | None = None) -> int:
                                 conn.reconnect(wanted, bulk=bulk)
                             except Exception as exc2:  # noqa: BLE001
                                 _retry_log(attempt, exc2, delay)
-                                delay = min(delay * 2, 15.0)
+                                delay = min(delay * 2, args.retry_max)
                                 continue
                             _watch_info("  reconnected - watching again.", args.json)
                             break

@@ -28,7 +28,9 @@
   `0x8205`, and no error frame either [hw:ETI81 2026-10-19]. Only the bitmap
   tells you whether the device understands it.
 - Register only ids the device advertised: `notify_caps()` is the allow-list
-  [prior:gazz@abe70f4].
+  [prior:gazz@abe70f4]. `melodyctl watch -f` overrides that for a **probe**
+  only — an unadvertised id that never arrives proves nothing, and one that
+  does arrive is a lead to capture, not state proof.
 - Right after registering, the app sends `0x0109` **only when the device
   advertises it** [apk:j#c] — a candidate "initial state" query (OQ-8); ETI81
   does not advertise it.
@@ -57,7 +59,7 @@
 | `2` | bud status | `[count][(component, flags) * count]` |
 | `3` | noise mode | sub-tagged like `0x010c` replies |
 | `4` | compactness (fit) | two detections |
-| `5` | game mode | one status byte |
+| `5` | game mode | one status byte (offset varies by product - see below) |
 | `6` | multi-connect | device list |
 | `8` | hearing-detect status | *(detection)* |
 | `10` | zen mode | one status byte |
@@ -75,7 +77,7 @@
 | `0xF8` | LE/BR switch state | *(state)* |
 | `0xF9` | AI-translation audio focus | one byte |
 
-- Everything except `1`/`2`/`0xF1` is named from the app's switch but **not
+- Everything except `1`/`2`/`5`/`0xF1` is named from the app's switch but **not
   yet decoded** [apk:j#b]; unknown bodies are kept as raw hex.
 - Prior art reads the multiplex as type `0x01` battery, `0x03` ANC change,
   `0x04` fit detection, `0x06` connected-device list
@@ -94,8 +96,12 @@ family-wide. What differs is:
   else is registered. Buds Pro advertised `01 02 03 04 06 08 0a`, Buds Pro 2
   ten codes `01 02 03 04 08 0b f1 f2 f3 0a` [prior:gazz@abe70f4].
 - **How to register** (`0x0205` vs `0x0201`) — see above.
-- **Event `5` (game mode)** puts the state byte at offset +2 instead of +1 on
-  product ids `062410`, `062810`, `063410`, `063010` [apk:j#b].
+- **Event `5` (game mode)** reads its state byte at body offset `+1`
+  (`payload[2]`) instead of `+0` (`payload[1]`) on product ids `062410`,
+  `062810`, `063410`, `063010` — ETI81 among them [apk:j#b]. `melodyctl watch`
+  implements the branch and passes the product id down; no device has pushed
+  this event for us yet (ETI81 does not even advertise id `5`), so it stays
+  app-derived → OQ-15.
 - **Event `2`'s in-ear bit** is only meaningful where the whitelist enables
   `function.wearDetection` — absent on 47 of the 85 entries, ETI81 included,
   which is why we have never seen it [wl:062410] [hw:ETI81 2026-10-19].
@@ -154,6 +160,21 @@ Two decoding rules from hardware:
 - **The count is not fixed either**: when both buds are out of the case the
   device drops the case entry, in this event *and* in event `1`
   [hw:ETI81 2026-10-19]. Never assume three components.
+
+### Game-mode event (`5`)
+
+A single status byte (non-zero = on) [apk:j#b]. The app's parser is generic
+except for one product check: on `062410` / `062810` / `063410` / `063010` the
+byte sits one further in, so a body that decodes as `[?, state]` there decodes
+as `[state]` elsewhere (claims #40). `melodyctl watch` needs the product id for
+this one event and gets it from `0x0103` at session start.
+
+Never observed: ETI81 advertises `1 2 241 242` only, and no capture exists.
+`0x0403` feature 6 sets the flag and its ack is separate from this push, so a
+future probe should subscribe with `melodyctl watch --events 1,2,241,5 --force`
+and change the mode from another host (the phone app) or from a gesture bound
+to game mode — the push is what tells a second host that the mode moved. That
+is OQ-15.
 
 ### `0x8202` — register-with-value (device-initiated)
 
