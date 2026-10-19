@@ -49,7 +49,7 @@ melodyctl gestures                        # current touch-gesture table
 melodyctl gesture-set --list              # every valid ear/button/action/function value
 melodyctl game on                         # low-latency mode
 melodyctl anc                             # noise-cancelling state (ANC models)
-melodyctl watch                           # live battery, case/bud state and gestures
+melodyctl watch                           # live battery, case/bud state, gestures, connected devices
 ```
 
 `gesture-set` accepts names or numbers and validates the combination before
@@ -75,7 +75,7 @@ melodyctl gesture-set both  tap long   vol+      # both ears, hold = volume up
 | `melodyctl gestures` | Read the touch-gesture table |
 | `melodyctl gesture-set` | Assign a gesture function (`--list` for values) |
 | `melodyctl game on\|off` | Toggle low-latency game mode |
-| `melodyctl watch` | Live-subscribe to the device's pushes: battery, case/bud state, gestures (`--json` for one object per event) |
+| `melodyctl watch` | Live-subscribe to the device's pushes: battery, case/bud state, gestures, connected devices - timestamped lines, or one JSON object per event with a `ts` field (`--json`); `--reconnect` waits for the buds and reconnects after they drop |
 | `melodyctl raw` | Send a raw OPOv1 packet (debugging) |
 
 `devinfo` (raw hex dump) and `eq-set` (EQ preset by protocol index,

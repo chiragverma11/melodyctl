@@ -6,7 +6,7 @@ import socket
 import time
 
 from .errors import MelodyctlError
-from .protocol import CMD_ANC_QUERY, CMD_ANC_SET, CMD_BATT_GET, CMD_CAPS, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD_GESTURES_GET, CMD_GESTURES_SET, CMD_HELLO, CMD_NOTIFY_PUSH, CMD_NOTIFY_REG, CMD_NOTIFY_SUB, CMD_SWITCH_FEATURE, CMD_VERSION_GET, COMPONENT, FEATURE_GAME_MODE, RESP_FLAG, RESP_NOTIFY_REGISTERED, decode_caps, decode_gestures, decode_notify_event, decode_version_records, frame, parse_frames
+from .protocol import CMD_ANC_QUERY, CMD_ANC_SET, CMD_BATT_GET, CMD_CAPS, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD_GESTURES_GET, CMD_GESTURES_SET, CMD_HELLO, CMD_NOTIFY_PUSH, CMD_NOTIFY_REG, CMD_NOTIFY_REG_MULTI, CMD_NOTIFY_SUB, CMD_SWITCH_FEATURE, CMD_VERSION_GET, COMPONENT, FEATURE_GAME_MODE, RESP_FLAG, RESP_NOTIFY_REGISTERED, RESP_NOTIFY_REG_MULTI, decode_caps, decode_gestures, decode_notify_event, decode_version_records, frame, notify_register_payload, parse_frames
 
 
 ADDR_DEFAULT = (os.environ.get("MELODYCTL_ADDR")
@@ -14,6 +14,11 @@ ADDR_DEFAULT = (os.environ.get("MELODYCTL_ADDR")
 RFCOMM_CH = 12                    # ETI81 (hw-verified); other models differ - OQ-3
 CHANNEL_CANDIDATES = [RFCOMM_CH, 15]   # then a full 1..30 sweep
 PROBE_TIMEOUT = 2.0               # per-channel cap while discovering
+# errnos that mean "this session is gone", not "no data right now". The buds
+# close the RFCOMM link when they idle or go back in the case with the lid
+# shut [hw:ETI81 2026-10-19], and a closed socket keeps raising these. Anything
+# else (EINTR, EAGAIN) is transient and must not be reported as a disconnect.
+DEAD_ERRNOS = (5, 9, 19, 32, 104, 107, 110, 112, 113)
 
 
 class Buds:
@@ -24,6 +29,7 @@ class Buds:
         self.sock: socket.socket | None = None
         self.seq = 0x20
         self._pending_events: list[dict] = []
+        self.lost: str | None = None   # set when the device closes the link
         env = os.environ.get("MELODYCTL_CHANNEL")
         self.channel = channel if channel is not None else (int(env) if env else None)
         self.channel_discovered = False
@@ -44,7 +50,23 @@ class Buds:
                      "--python /usr/bin/python3 git+https://github.com/chiragverma11/melodyctl'.",
             )
         self.sock = self._open_socket()
+        self.lost = None
         self._hello()
+
+    def reconnect(self, events: list[int] | None = None,
+                  bulk: bool = False) -> dict | None:
+        """Drop the dead socket, connect again, and optionally re-register.
+
+        Needed because the device closes the link when it idles or is cased:
+        the old socket stays mute forever, so a watcher must build a new one
+        [hw:ETI81 2026-10-19]. Returns the ``register_notify`` result when
+        ``events`` is given, else ``None``.
+        """
+        self.close()
+        self.connect()
+        if events is None:
+            return None
+        return self.register_notify(events, bulk=bulk)
 
     # ---- channel discovery -------------------------------------------------
     def _open_socket(self) -> socket.socket:
@@ -95,6 +117,12 @@ class Buds:
                 self.sock = None
 
     def _drain(self, wait: float) -> bytes:
+        """Read for up to ``wait`` seconds, recording a dead link in ``lost``.
+
+        A socket the device closed never becomes readable again, so callers
+        that loop (``iter_events``) must check ``lost`` instead of waiting
+        forever for data that cannot arrive [hw:ETI81 2026-10-19].
+        """
         assert self.sock is not None
         end = time.time() + wait
         buf = bytearray()
@@ -102,14 +130,17 @@ class Buds:
         while time.time() < end:
             try:
                 chunk = self.sock.recv(512)
-                if not chunk:
-                    break
-                buf += chunk
-                end = time.time() + 0.5
             except socket.timeout:
                 continue
-            except OSError:
+            except OSError as exc:
+                if exc.errno in DEAD_ERRNOS:
+                    self.lost = exc.strerror or exc.__class__.__name__
                 break
+            if not chunk:
+                self.lost = "peer closed the connection"
+                break
+            buf += chunk
+            end = time.time() + 0.5
         return bytes(buf)
 
     def _hello(self) -> None:
@@ -221,36 +252,62 @@ class Buds:
                 return list(p[2:2 + p[1]])
         return []
 
-    def register_notify(self, events: list[int]) -> dict[int, int | None]:
-        """Register event ids (0x0201). Returns {eventId: ackStatus}.
+    def register_notify(self, events: list[int],
+                        bulk: bool = False) -> dict:
+        """Register event ids for push delivery.
 
-        The device may also send 0x8202 with the current value; those frames
-        are buffered so ``iter_events`` can yield them first.
+        ``bulk=True`` sends the app's single ``0x0205`` (it uses that whenever
+        the device advertises the command); if no ``0x8205`` ack arrives within
+        the window we fall back to one ``0x0201`` per event [apk:j#c]. Returns
+        ``{"style": "bulk"|"per-event", "acks": {eventId: ackStatus|None}}``.
+
+        A device-initiated ``0x8202`` seen along the way is buffered so
+        ``iter_events`` can yield its value first.
         """
-        out: dict[int, int | None] = {}
+        events = [e & 0xFF for e in events]
         self._pending_events = []
-        for e in events:
-            frames = self.send_frames(CMD_NOTIFY_REG, bytes([e & 0xFF]), wait=1.5)
-            ack = next((f for f in frames
-                        if f["cmd"] == CMD_NOTIFY_REG | RESP_FLAG), None)
-            out[e] = ack["payload"][0] if ack and ack["payload"] else None
+        bulk_attempted = False
+        if bulk and len(events) > 1:
+            bulk_attempted = True
+            frames = self.send_frames(CMD_NOTIFY_REG_MULTI,
+                                      notify_register_payload(events), wait=2.0)
             self._pending_events += [f for f in frames
                                      if f["cmd"] == RESP_NOTIFY_REGISTERED]
-        return out
+            ack = next((f for f in frames if f["cmd"] == RESP_NOTIFY_REG_MULTI), None)
+            # Only a clean ack counts: a refusal (non-zero status) must fall
+            # back rather than leave us subscribed to nothing.
+            if ack is not None and (not ack["payload"] or ack["payload"][0] == 0):
+                return {"style": "bulk", "acks": {e: None for e in events},
+                        "bulk_attempted": True}
+        acks: dict[int, int | None] = {}
+        for e in events:
+            frames = self.send_frames(CMD_NOTIFY_REG, bytes([e]), wait=1.5)
+            ack = next((f for f in frames
+                        if f["cmd"] == CMD_NOTIFY_REG | RESP_FLAG), None)
+            acks[e] = ack["payload"][0] if ack and ack["payload"] else None
+            self._pending_events += [f for f in frames
+                                     if f["cmd"] == RESP_NOTIFY_REGISTERED]
+        return {"style": "per-event", "acks": acks,
+                "bulk_attempted": bulk_attempted}
 
     def iter_events(self, drain: float = 1.0, oneplus_branch: bool = False):
-        """Yield decoded pushes until interrupted.
+        """Yield decoded pushes until interrupted or the link dies.
 
         Live pushes arrive on 0x0204; an asynchronous 0x8202 carries the same
-        event body one byte later (a leading status byte) [apk:j#c].
+        event body one byte later (a leading status byte) [apk:j#c]. When the
+        device closes the link this raises ``MelodyctlError(code=
+        "disconnected")`` rather than blocking forever on a dead socket.
         """
         pending, self._pending_events = self._pending_events, []
         for f in pending:
             decoded = decode_notify_event(f["payload"][1:], oneplus_branch)
             if decoded:
+                decoded["via"] = f"0x{f['cmd']:04X}"
+                decoded["hex"] = f["payload"][1:].hex(" ").upper()
                 yield decoded
         while True:
-            for f in parse_frames(self._drain(drain)):
+            frames = parse_frames(self._drain(drain))
+            for f in frames:
                 if f["cmd"] == CMD_NOTIFY_PUSH:
                     payload = f["payload"]
                 elif f["cmd"] == RESP_NOTIFY_REGISTERED and len(f["payload"]) >= 2:
@@ -259,6 +316,20 @@ class Buds:
                     continue
                 decoded = decode_notify_event(payload, oneplus_branch)
                 if decoded:
+                    # keep the wire bytes and the frame that carried them: a
+                    # capture cannot be re-verified from decoded values alone,
+                    # and 0x0204 pushes look identical to 0x8202 snapshots once
+                    # the event body is decoded
+                    decoded["via"] = f"0x{f['cmd']:04X}"
+                    decoded["hex"] = payload.hex(" ").upper()
                     yield decoded
+            if self.lost:
+                raise MelodyctlError(
+                    f"the earbuds closed the connection ({self.lost})",
+                    code="disconnected",
+                    hint="They do this when they idle, or go back in the case "
+                         "with the lid closed. Start 'melodyctl watch' again, or "
+                         "pass '--reconnect' to sit through it and keep watching.",
+                )
 
 

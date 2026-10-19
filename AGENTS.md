@@ -63,6 +63,11 @@ Enco Buds (ETI81, product id `062410`)** unless a claim says otherwise.
 - Address: `--addr` or `MELODYCTL_ADDR` (default `6C:0D:E1:5F:DB:4D`). Buds drop to
   `Host is down` when idle; retry wakes them. `busy` = another connection is open
   (only one allowed at a time).
+- Push captures: start with the buds **out of the case**. A cased pair with the lid
+  shut is disconnected (so `watch` cannot even connect), and the device closes the
+  RFCOMM link when it goes back to sleep — an open session then goes silent for good.
+  `melodyctl watch --reconnect` waits for the buds at startup and rebuilds the
+  session after each drop.
 - Quick loop: `melodyctl caps`, `melodyctl device`, `melodyctl fw`, `melodyctl battery --json`.
 - New device/coverage work: `melodyctl report` (safe to paste) is the fact-collection step for upgrading a row in `docs/devices/coverage.md`.
 - New capture: raw request/response frames under `docs/protocol/captures/` with a

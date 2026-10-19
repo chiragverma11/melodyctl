@@ -17,7 +17,14 @@
   the `0x8106` reply has its status byte [hw:ETI81 2026-10-19]: subscribe with
   `0x0200` + `0x0201` and the device reports changes on its own. Prior art
   documented the shape first [prior:leaf@feb7b70] [prior:gazz@abe70f4].
-  See [commands/notifications.md](notifications.md).
+  One push carries every component, and charging is bit 7 of the same byte
+  [hw:ETI81 2026-10-19]; see [commands/notifications.md](notifications.md).
+- Pushes are **edge-triggered with no heartbeat**, and the case entry is
+  dropped while both buds are out — poll with `0x0106` when you need a value
+  now [hw:ETI81 2026-10-19].
+- Component ids `1`/`2`/`3` read as left/right/case, but the app's vocabulary
+  includes a single-battery kind (`BatteryType.SINGLE`), so case-less models
+  are not guaranteed to use them [apk:BatteryType] → OQ-12.
 
 Related: `melodyctl battery`, `monitor`, `watch`; JSON output keeps a flat
 `{left,right,case}` map for widgets.

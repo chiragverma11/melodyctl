@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -9,9 +10,82 @@ import time
 import traceback
 
 from . import __version__, devices
-from .errors import emit_error
-from .protocol import ACTION_ALIASES, ACTION_NAMES, BUTTON_ALIASES, BUTTON_NAMES, CMD_ANC_QUERY, CMD_BATT_GET, CMD_CAPS, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD_GESTURES_GET, CMD_GESTURES_SET, CMD_INFO, CMD_SWITCH_FEATURE, CMD_VERSION_GET, EAR, EAR_ALIASES, FUNCTION_ALIASES, FUNCTION_NAMES, MODE_NAMES, NOTIFY_NAMES, _fmt_battery, _fmt_status, _fmt_versions, anc_bitmap, decode_anc_bitmap, decode_caps, decode_product_id, decode_version_records, function_name, mask_presets, mask_wires, preset_wire
+from .errors import MelodyctlError, classify_error, emit_error
+from .protocol import ACTION_ALIASES, ACTION_NAMES, BUTTON_ALIASES, BUTTON_NAMES, CMD_ANC_QUERY, CMD_BATT_GET, CMD_CAPS, CMD_EQ_SET, CMD_GAMESOUND_SET, CMD_GESTURES_GET, CMD_GESTURES_SET, CMD_INFO, CMD_NOTIFY_REG_MULTI, CMD_SWITCH_FEATURE, CMD_VERSION_GET, EAR, EAR_ALIASES, FUNCTION_ALIASES, FUNCTION_NAMES, MODE_NAMES, NOTIFY_NAMES, _fmt_battery, _fmt_devices, _fmt_status, _fmt_versions, anc_bitmap, decode_anc_bitmap, decode_caps, decode_product_id, decode_version_records, function_name, mask_presets, mask_wires, preset_wire
 from .transport import ADDR_DEFAULT, Buds
+
+# Failures worth sitting through when --reconnect is given: the device is
+# asleep / cased / out of range, which is exactly the case a watcher must ride
+# out. 'busy', 'no_adapter' and an unclassified error need attention, so they
+# still abort.
+_RETRY_CODES = {"disconnected", "unreachable", "timeout", "refused", "no_channel"}
+
+
+def _retry_log(attempt: int, exc: BaseException, delay: float) -> None:
+    """Say why we are waiting, without flooding: first try, then ~every minute."""
+    if attempt == 1:
+        print(f"  [{time.strftime('%H:%M:%S')}] {exc}", file=sys.stderr, flush=True)
+    if attempt == 1 or attempt % 4 == 0:
+        print(f"  ... still waiting: retrying every {delay:.0f}s (Ctrl-C to stop)",
+              file=sys.stderr, flush=True)
+
+
+def _connect_retrying(conn: Buds, retry: bool, delay: float = 2.0) -> None:
+    """Connect, waiting for the device to come back when ``retry`` is set."""
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            conn.connect()
+            return
+        except Exception as exc:  # noqa: BLE001 - users get one clean line
+            code, _ = classify_error(exc)
+            if not retry or code not in _RETRY_CODES:
+                raise
+            _retry_log(attempt, exc, delay)
+            time.sleep(delay)
+            delay = min(delay * 2, 15.0)
+
+
+@contextlib.contextmanager
+def _session(addr: str, retry: bool):
+    """A Buds session that can wait for the device to appear, then closes."""
+    conn = Buds(addr)
+    _connect_retrying(conn, retry)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def _watch_line(ev: dict, json_mode: bool) -> None:
+    """Print one watched event: a JSON object, or a timestamped human line."""
+    if json_mode:
+        ev["ts"] = time.time()
+        print(json.dumps(ev), flush=True)
+        return
+    stamp = time.strftime("%H:%M:%S")
+    if "battery" in ev:
+        label, detail = "BATTERY", _fmt_battery(ev["battery"])
+    elif "status" in ev:
+        label, detail = "STATUS", _fmt_status(ev["status"])
+    elif "interaction" in ev:
+        d = ev["interaction"]
+        label = "GESTURE"
+        detail = (f"ear={d.get('ear'):<5} button={d.get('button')} "
+                  f"action={d.get('action')} -> {d.get('function_name')} "
+                  f"({d.get('function')}) scene={d.get('scene')}")
+    elif "devices" in ev:
+        label, detail = "DEVICES", _fmt_devices(ev["devices"])
+    else:
+        label, detail = "EVENT", f"{ev['event']}: {ev.get('raw', '')}"
+    print(f"  [{stamp}] {label:<9} {detail}", flush=True)
+
+
+def _watch_info(message: str, json_mode: bool) -> None:
+    """Human chatter for `watch`: under --json it goes to stderr, so stdout
+    stays a pure JSON stream a daemon can pipe straight into a parser."""
+    print(message, file=sys.stderr if json_mode else sys.stdout, flush=True)
 
 
 def _resolve_int(value: str, aliases: dict[str, int], kind: str) -> int:
@@ -209,10 +283,15 @@ def main(argv: list[str] | None = None) -> int:
 
     p_watch = sub.add_parser(
         "watch", help="subscribe to device pushes (battery, case/bud status, gestures)")
-    p_watch.add_argument("--json", action="store_true", help="one JSON object per event")
+    p_watch.add_argument("--json", action="store_true",
+                         help="one JSON object per event: 'ts' epoch, 'hex' wire "
+                              "payload, 'via' the frame that carried it")
     p_watch.add_argument("-e", "--events",
                          help="comma-separated event ids to register, e.g. 1 or 1,2 "
                               "(default: everything the device advertises)")
+    p_watch.add_argument("--reconnect", action="store_true",
+                         help="wait for the earbuds at startup and reconnect "
+                              "whenever they drop (they do when cased/idle)")
 
     p_raw = sub.add_parser("raw", help="send a raw hex packet")
     p_raw.add_argument("hex")
@@ -511,10 +590,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if code == 0 else 1
 
         if args.cmd == "watch":
-            with Buds(args.addr) as conn:
+            with _session(args.addr, args.reconnect) as conn:
                 profile = devices.profile_for(_identify(conn))
                 op = devices.oneplus_branch(profile)
                 advertised = conn.notify_caps()
+                # The app registers with one 0x0205 when the device advertises
+                # that command, else one 0x0201 per id [apk:j#c].
+                bulk = CMD_NOTIFY_REG_MULTI in conn.caps()
                 wanted = advertised
                 if args.events:
                     try:
@@ -530,29 +612,50 @@ def main(argv: list[str] | None = None) -> int:
                               + ", ".join(str(e) for e in skipped)
                               + "; not registering those", file=sys.stderr)
                         wanted = [e for e in wanted if e in advertised]
-                print("pushable events:", ", ".join(
-                    f"{e}({NOTIFY_NAMES.get(e, '?')})" for e in advertised) or "(none)")
+                _watch_info("pushable events: " + (", ".join(
+                    f"{e}({NOTIFY_NAMES.get(e, '?')})" for e in advertised)
+                    or "(none)"), args.json)
                 if not wanted:
                     print("nothing to watch: no advertised event id matched",
                           file=sys.stderr)
                     return 1
-                conn.register_notify(wanted)
-                print("watching for pushes - open/close the case, take the buds out, "
-                      "tap them. Ctrl-C to stop.", flush=True)
-                for ev in conn.iter_events(1.0, op):
-                    if args.json:
-                        print(json.dumps(ev), flush=True)
-                    elif "battery" in ev:
-                        print(f"  BATTERY   {_fmt_battery(ev['battery'])}", flush=True)
-                    elif "status" in ev:
-                        print(f"  STATUS    {_fmt_status(ev['status'])}", flush=True)
-                    elif "interaction" in ev:
-                        d = ev["interaction"]
-                        print(f"  GESTURE   ear={d.get('ear'):<5} button={d.get('button')} "
-                              f"action={d.get('action')} -> {d.get('function_name')} "
-                              f"({d.get('function')}) scene={d.get('scene')}", flush=True)
-                    else:
-                        print(f"  EVENT {ev['event']}: {ev.get('raw', '')}", flush=True)
+                reg = conn.register_notify(wanted, bulk=bulk)
+                acks = reg["acks"]
+                rejected = [e for e, a in acks.items() if a]
+                note = ""
+                if reg["bulk_attempted"] and reg["style"] == "per-event":
+                    note = " (0x0205 not accepted, fell back)"
+                _watch_info(f"registered {len(wanted)} event(s) via {reg['style']}{note}"
+                            + (f"; rejected: {rejected}" if rejected else ""),
+                            args.json)
+                _watch_info("watching for pushes - open/close the case, take the "
+                            "buds out, tap them. Ctrl-C to stop.", args.json)
+                while True:
+                    try:
+                        for ev in conn.iter_events(1.0, op):
+                            _watch_line(ev, args.json)
+                        return 0         # only on a clean stop
+                    except MelodyctlError as exc:
+                        # The buds close the link when they idle or are cased;
+                        # the socket never revives, so a new one is required.
+                        if not args.reconnect or exc.code != "disconnected":
+                            raise
+                        _watch_info(f"  [{time.strftime('%H:%M:%S')}] {exc}", args.json)
+                        _watch_info("  waiting for the earbuds (Ctrl-C to stop)...",
+                                    args.json)
+                        delay = 2.0
+                        attempt = 0
+                        while True:
+                            attempt += 1
+                            time.sleep(delay)
+                            try:
+                                conn.reconnect(wanted, bulk=bulk)
+                            except Exception as exc2:  # noqa: BLE001
+                                _retry_log(attempt, exc2, delay)
+                                delay = min(delay * 2, 15.0)
+                                continue
+                            _watch_info("  reconnected - watching again.", args.json)
+                            break
             return 0
 
         if args.cmd == "raw":

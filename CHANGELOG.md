@@ -11,6 +11,21 @@ to [Semantic Versioning](https://semver.org/).
   `STATUS left=out-of-case right=in-case case=cover-open` (gestures unchanged,
   anything else as raw hex). New `--json` (one object per event, for daemons and
   widgets) and `-e/--events` (register only the listed ids the device advertises).
+- `watch` also decodes event `242` (`0xF2`) as
+  `DEVICES 00:01:02:03:04:05 x3 OnePlus 9 Pro` (the app's connected-device
+  list), every battery/status entry now keeps its raw component id under
+  `component` (case-less models are not guaranteed to use left/right/case), and
+  each event carries a timestamp - `[HH:MM:SS]` in the human line, `ts` in JSON.
+- `watch --json` events carry their evidence: `hex` (the wire payload) and `via`
+  (the frame that carried it, e.g. `0x0204`), so a capture can be re-verified
+  and `0x0204` pushes can be told apart from `0x8202` register values. Under
+  `--json` all human chatter now goes to stderr, leaving stdout a pure JSON
+  stream.
+- Registration now mirrors the app: one bulk `0x0205` when the device's
+  capability bitmap advertises it, otherwise one `0x0201` per advertised id,
+  with an automatic fall back to `0x0201` when the bulk register is refused.
+  ETI81 advertises neither, so its verified path is unchanged (a forced
+  `0x0205` there is ignored outright, which the fallback absorbs).
 
 ### Changed
 - Gesture support is now one-to-one with HeyMelody across the family:
@@ -22,6 +37,16 @@ to [Semantic Versioning](https://semver.org/).
   documented in `docs/protocol/commands/gestures.md`.
 
 ### Fixed
+- `melodyctl watch` no longer hangs silently when the earbuds disconnect (they do
+  when they idle or go back in the case with the lid shut): the dead socket is
+  detected and reported as one clean `disconnected` line instead of waiting
+  forever on a link that can never deliver again. New `--reconnect` waits for the
+  buds at startup and rebuilds the session after each drop. Verified on ETI81
+  across three lid-close/reopen cycles.
+- Docs: the claim that the case entry is "always present" in push frames was
+  wrong — it holds while a bud is in the case, but the device drops component
+  `3` from both events once **both** buds are out (claims #44, corrected in
+  `docs/protocol/captures/2026-10-19-eti81-notify-push.md`).
 - Gesture naming corrected against the HeyMelody app: function code 2 is
   "listening music" (was `resume`), 26/27 are AI translation variants, 32 is
   "spy tap"; button 6 means the neckband volume-key pair (the old

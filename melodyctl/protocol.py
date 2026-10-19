@@ -22,6 +22,8 @@ CMD_NOTIFY_SUB = 0x0200      # ask which event ids the device can push (reply 0x
 CMD_NOTIFY_REG = 0x0201      # register one event: payload [eventId]
 CMD_NOTIFY_PUSH = 0x0204     # device push; payload[0] = event id
 CMD_NOTIFY_REG_MULTI = 0x0205    # register many: payload [count, eventId...]
+RESP_NOTIFY_REG_MULTI = 0x8205   # its ack; the app uses bulk only when the
+                                 # device advertises 0x0205 [apk:j#c]
 # Device-initiated "registered notification": the app's incoming-code switch
 # handles 0x8202 (response bit set) and reads it as [status, eventId, body],
 # i.e. the same event body one byte later [apk:j#c]. Never sent by us.
@@ -30,8 +32,8 @@ RESP_NOTIFY_REGISTERED = 0x8202
 FEATURE_GAME_MODE = 6
 
 # Push event ids carried by 0x0204 (payload[0]) [apk:j#b]; ETI81 advertises
-# 1/2/241/242 [hw:ETI81 2026-10-19]. The extended 0xF1..0xF9 ids are the app's
-# "event" family; ids 1..17 are the "state" family.
+# 1/2/241/242 [hw:ETI81 2026-10-19]. The app dispatches every id in one switch;
+# ids with no parser are logged and dropped, so an unlisted id is not state.
 NOTIFY_BATTERY = 1               # [count][(component, level|charging<<7)...]
 NOTIFY_BUD_STATUS = 2            # [count][(component, flags)...]
 NOTIFY_USER_INTERACTION = 0xF1   # 241: user tapped a bud
@@ -63,6 +65,11 @@ MODE_NAMES = {1: "off", 2: "transparency", 3: "light", 4: "deep", 5: "nc",
               6: "adaptive", 7: "smart", 8: "medium", 10: "adaptive"}
 
 RESP_FLAG = 0x8000
+# Battery/bud-status component ids. The app's own vocabulary is the enum
+# `BatteryType` {LEFT, RIGHT, BOX, SINGLE} [apk:BatteryType] - case-less models
+# (neckbands, single-battery products) do not necessarily use 1/2/3, so every
+# decoded entry also keeps its raw id under "component" and unknown ids render
+# as "idN" instead of a body part.
 COMPONENT = {1: "left", 2: "right", 3: "case"}
 EAR = {1: "left", 2: "right", 4: "both"}
 CMD_NAMES = {
@@ -301,6 +308,7 @@ def decode_battery_event(body: bytes) -> dict[str, dict]:
     ``[count][ (component, level | charging<<7) * count ]`` [apk:e#d]
     [apk:BatteryInfo#<init>]. Components follow ``COMPONENT``; the list order is
     not stable across pushes [hw:ETI81 2026-10-19], so this is keyed by name.
+    Every entry keeps its raw id as ``component``.
     """
     if not body:
         return {}
@@ -312,6 +320,7 @@ def decode_battery_event(body: bytes) -> dict[str, dict]:
             break
         dev, val = body[off], body[off + 1]
         out[COMPONENT.get(dev, f"id{dev}")] = {
+            "component": dev,
             "level": val & 0x7F,
             "charging": bool(val & 0x80),
         }
@@ -336,12 +345,46 @@ def decode_status_event(body: bytes) -> dict[str, dict]:
             break
         dev, flags = body[off], body[off + 1]
         out[COMPONENT.get(dev, f"id{dev}")] = {
+            "component": dev,
             "in_case": not flags & STATUS_FLAG_OUT_OF_CASE,
             "in_ear": bool(flags & STATUS_FLAG_IN_EAR),
             "cover_open": bool(flags & STATUS_FLAG_COVER_OPEN),
             "safe_remind": bool(flags & STATUS_FLAG_SAFE_REMIND),
         }
     return out
+
+
+def decode_connected_devices_event(body: bytes) -> list[dict]:
+    """Decode a pushed connected-devices event body (0x0204 type 0xF2).
+
+    ``[count][ (mac6 reversed, connectTimes:u16 LE, nameLen:u8, name) * count ]``
+    [apk:j#b] case -14 [apk:ConnectDevice]. Byte order for the address follows
+    prior art's "6-byte MAC, reversed for display" [prior:leaf@feb7b70].
+    """
+    if not body:
+        return []
+    count = body[0]
+    off = 1
+    out: list[dict] = []
+    for _ in range(count):
+        if off + 9 > len(body):
+            break
+        addr = ":".join(f"{b:02X}" for b in reversed(body[off:off + 6]))
+        times = body[off + 6] | (body[off + 7] << 8)
+        nlen = body[off + 8]
+        name = body[off + 9:off + 9 + nlen]
+        if len(name) < nlen:
+            break
+        out.append({"address": addr, "connect_times": times,
+                    "name": name.decode("utf-8", "replace")})
+        off += 9 + nlen
+    return out
+
+
+def notify_register_payload(events: list[int]) -> bytes:
+    """0x0205 bulk-register payload: ``[count][eventId...]`` [apk:j#c]."""
+    ev = [e & 0xFF for e in events]
+    return bytes([len(ev)]) + bytes(ev)
 
 
 def decode_notify_event(payload: bytes, oneplus_branch: bool = False) -> dict:
@@ -363,18 +406,29 @@ def decode_notify_event(payload: bytes, oneplus_branch: bool = False) -> dict:
         out["status"] = decode_status_event(body)
     elif eid == NOTIFY_USER_INTERACTION:
         out["interaction"] = decode_user_interaction(body, oneplus_branch)
+    elif eid == NOTIFY_CONNECTED_DEVICES:
+        out["devices"] = decode_connected_devices_event(body)
     else:
         out["raw"] = body.hex(" ").upper()
     return out
 
 
+def _fmt_devices(devices: list[dict]) -> str:
+    """One-line render of a decoded connected-devices event."""
+    if not devices:
+        return "(none)"
+    return "  ".join(
+        f"{d['address']} x{d['connect_times']}"
+        + (f" {d['name']}" if d["name"] else "")
+        for d in devices)
+
+
 def _fmt_status(status: dict) -> str:
     """One-line render of a decoded status event, e.g. ``left=in-case``."""
     parts = []
-    for name in ("left", "right", "case"):
-        if name not in status:
+    for name, v in status.items():
+        if not isinstance(v, dict) or "in_case" not in v:
             continue
-        v = status[name]
         if name == "case":
             where = "cover-open" if v["cover_open"] else "cover-closed"
         elif v["in_ear"]:
@@ -478,10 +532,11 @@ def _fmt_versions(records: list[dict]) -> str:
 
 def _fmt_battery(b: dict) -> str:
     parts = []
-    for name in ("left", "right", "case"):
-        if name in b:
-            bolt = "+" if b[name]["charging"] else ""
-            parts.append(f"{name}={b[name]['level']}%{bolt}")
+    for name, v in b.items():
+        if not isinstance(v, dict) or "level" not in v:
+            continue
+        bolt = "+" if v["charging"] else ""
+        parts.append(f"{name}={v['level']}%{bolt}")
     return "  ".join(parts)
 
 
@@ -492,6 +547,11 @@ _ERRNO_HINTS: dict[int, tuple[str, str]] = {
     16: ("busy", "Another app (e.g. HeyMelody) is using the earbuds; only one "
                  "connection is allowed at a time."),
     19: ("no_adapter", "No Bluetooth adapter found - is Bluetooth enabled?"),
+    32: ("disconnected", "The earbuds closed the connection - they went idle, or "
+                         "the case lid was closed."),
+    104: ("disconnected", "The earbuds reset the connection - they went idle, or "
+                          "moved out of range."),
+    107: ("disconnected", "The earbuds are no longer connected - start again."),
     110: ("timeout", "No response from the earbuds (timed out)."),
     111: ("refused", "The earbuds refused the connection (off, out of range, or "
                      "not paired)."),
