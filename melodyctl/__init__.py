@@ -15,4 +15,4 @@ from .errors import MelodyctlError
 from .protocol import *  # noqa: F401,F403
 from .transport import ADDR_DEFAULT, Buds
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"

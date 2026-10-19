@@ -41,8 +41,9 @@ Enco Buds (ETI81, product id `062410`)** unless a claim says otherwise.
 - CLI is stdlib-only; install via `uv tool install` (see README). Keep it that way.
 - Errors: short title + Details; single-line JSON under `--json`; never tracebacks.
 - One RFCOMM connection at a time — serialise all device access.
-- DMS plugin version is pinned by the owner (1.3.0) — do not bump it there; CLI
-  versions live in `pyproject.toml`.
+- DMS plugin version lives in `dms-plugins/melodyctl/plugin.json` and is bumped
+  only when the owner asks for a plugin release; CLI versions live in
+  `pyproject.toml` + `melodyctl/__init__.py`.
 - Keep CLI back-compat except for documented bug fixes (first one: `eq` → `fw`, v1.2.2).
 
 ## Layout
@@ -83,4 +84,7 @@ Enco Buds (ETI81, product id `062410`)** unless a claim says otherwise.
 
 ## Current plan
 
-`/home/chirag/.opencode/plan/melodyctl-family-expansion.md` (phases 0-6).
+`/home/chirag/.opencode/plan/melodyctl-family-expansion.md` (phases 0-8: family
+expansion, push channel) and
+`/home/chirag/.opencode/plan/melodyctl-daemon-and-dms-widget.md` (next: the
+daemon owns the RFCOMM link, then the DMS widget reads push state).

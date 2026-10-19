@@ -5,6 +5,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-19
+
 ### Added
 - `melodyctl watch` decodes the device's own pushes: `0x0204` event `1` prints as
   `BATTERY left=50% right=80% case=100%` and event `2` as
@@ -51,7 +53,13 @@ to [Semantic Versioning](https://semver.org/).
   "listening music" (was `resume`), 26/27 are AI translation variants, 32 is
   "spy tap"; button 6 means the neckband volume-key pair (the old
   "slide/pinch group / actions 28-37" claim was wrong - pinch is actions
-  16-20), and the misleading `button=long` alias is gone.
+  16-20).
+
+### Removed
+- The `--button long` / `long-press` aliases. "long" is a *gesture* (action 4),
+  not a control, so the alias silently selected button 6 - the neckband
+  volume-key pair. Use `--button tap --action long`; only real controls are
+  named now (`tap`/`touch`, `middle`/`mid`).
 
 ### Documentation
 - CLI help, README, daemon and tools wording now present the tool as

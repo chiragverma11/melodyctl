@@ -24,7 +24,7 @@ time.
 uv tool install --python /usr/bin/python3 git+https://github.com/chiragverma11/melodyctl
 
 # pin a release (append @vX.Y.Z to the URL)
-uv tool install --python /usr/bin/python3 "git+https://github.com/chiragverma11/melodyctl@v1.3.0"
+uv tool install --python /usr/bin/python3 "git+https://github.com/chiragverma11/melodyctl@v1.4.0"
 
 # alternatives
 pipx install git+https://github.com/chiragverma11/melodyctl   # pipx also works
