@@ -87,6 +87,9 @@ Enco Buds (ETI81, product id `062410`)** unless a claim says otherwise.
 ## Current plan
 
 `/home/chirag/.opencode/plan/melodyctl-family-expansion.md` (phases 0-8: family
-expansion, push channel) and
-`/home/chirag/.opencode/plan/melodyctl-daemon-and-dms-widget.md` (next: the
-daemon owns the RFCOMM link, then the DMS widget reads push state).
+expansion, push channel — done) and
+`/home/chirag/.opencode/plan/melodyctl-daemon-and-dms-widget.md` (the daemon owns
+the RFCOMM link and the DMS widget reads push state — **released as CLI 1.5.0
+(`v1.5.0`) + plugin 1.5.0 (`melodyctl-v1.5.0`)**; the plan file lists what is
+still unverified: one daemon-side lid-close cycle, a human look at the widget
+popout with the buds out, and a real second device for the non-ETI81 rows).
