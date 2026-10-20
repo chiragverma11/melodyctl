@@ -469,6 +469,10 @@ def main(argv: list[str] | None = None) -> int:
         "daemon", help="hold the RFCOMM link, publish state.json, serve commands")
     p_daemon.add_argument("--retry-max", type=float, default=60.0, metavar="SECONDS",
                           help="cap the reconnect back-off (default 60)")
+    p_daemon.add_argument("--poll", type=float, default=120.0, metavar="SECONDS",
+                          help="refresh the battery after this much silence while "
+                               "connected, and detect a link that stopped "
+                               "answering (default 120; 0 disables)")
     p_daemon.add_argument("-q", "--quiet", action="store_true",
                           help="no progress output")
 
@@ -888,7 +892,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "daemon":
             from .daemon import Daemon
             return Daemon(args.addr, retry_max=args.retry_max,
-                          quiet=args.quiet).run()
+                          poll=args.poll, quiet=args.quiet).run()
     except KeyboardInterrupt:
         # Ctrl-C: exit quietly (no traceback) with the conventional 130.
         return 130

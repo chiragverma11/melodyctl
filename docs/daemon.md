@@ -23,6 +23,7 @@ before when it is not running.
 ```bash
 melodyctl daemon              # foreground; Ctrl-C stops it
 melodyctl daemon --retry-max 30 --quiet
+melodyctl daemon --poll 300   # read the battery after 5 min of silence (0 disables)
 MELODYCTL_DEBUG=1 melodyctl daemon   # log client-request timings
 ```
 
@@ -46,6 +47,15 @@ comes back with exponential back-off (2 s doubling to `--retry-max`, default
 again immediately, so a returning pair of buds is picked up in seconds rather
 than minutes.
 
+Pushes are edge-triggered, so a held link can go quiet for a long time without
+anything being wrong. After `--poll` seconds with no device data (default
+**120**; `0` disables) the session thread reads the battery again: that is the
+one value with a query, and it doubles as a liveness check. Two misses in a row
+mean the peer stopped answering — a bud that went to sleep can leave the socket
+open and simply go silent, which no read can detect — so the session is dropped
+and rebuilt. Poll results land in `state.json` like any other reading but are
+**not** fanned out as events: an attached `watch` is a push stream.
+
 ## `state.json`
 
 Written atomically (`tmp` + rename) whenever a push changes it, and rewritten
@@ -53,7 +63,7 @@ at least every 60 s so `ts` stays meaningful.
 
 ```json
 {
-  "version": "1.5.0", "addr": "6C:0D:E1:5F:DB:4D",
+  "version": "1.5.1", "addr": "6C:0D:E1:5F:DB:4D",
   "session": "connected",
   "product": "062410", "device": "OPPO Enco Buds", "channel": 12,
   "registered": [1, 2, 241, 242],
@@ -70,18 +80,21 @@ Rules a reader can rely on:
 - `session` is `connected` or `waiting`. **Gate on it**: while `waiting`, the
   `battery`/`status`/`game` values are the last ones seen, not current ones.
   (`error` then carries the classified reason, e.g. `unreachable`/`busy`.)
-- `updated` is when the device last told us something; `ts` is when the file
-  was last written. A file with an old `ts` means the daemon is gone (crash, or
-  `systemctl --user stop`), so treat it as no daemon at all.
+- `updated` is when the device last told us something (a push, the connect
+  seed, a client `battery` read, or the idle poll); `ts` is when the file was
+  last written. A file with an old `ts` means the daemon is gone (crash, or
+  `systemctl --user stop`), so treat it as no daemon at all. `updated` can be
+  older than `ts` while the link is quiet; with `--poll` it is at most one
+  poll interval behind.
 - `battery`/`status` are **replaced** per event, never merged: the device drops
   the case entry from both events once both buds are out [hw:ETI81
   2026-10-19], and a stale case level must disappear with it.
 - `battery`, `status` and `game` are `null` until the device says something.
-  `battery` is seeded with one `0x0106` poll on connect; **`status` and `game`
-  are push-only** — there is no query for either — so they stay `null` after a
-  reconnect until the next event. `status` follows a case/bud change; `game`
-  follows a game-mode change (event `5`, which ETI81 pushes unsolicited even
-  though it refuses to register it — claims #48/#49).
+  `battery` is seeded with one `0x0106` poll on connect (which sets `updated`
+  too); **`status` and `game` are push-only** — there is no query for either —
+  so they stay `null` after a reconnect until the next event. `status` follows
+  a case/bud change; `game` follows a game-mode change (event `5`, which ETI81
+  pushes unsolicited even though it refuses to register it — claims #48/#49).
 
 ## `daemon.sock`
 

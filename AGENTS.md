@@ -93,3 +93,9 @@ the RFCOMM link and the DMS widget reads push state — **released as CLI 1.5.0
 (`v1.5.0`) + plugin 1.5.0 (`melodyctl-v1.5.0`)**; the plan file lists what is
 still unverified: one daemon-side lid-close cycle, a human look at the widget
 popout with the buds out, and a real second device for the non-ETI81 rows).
+
+The follow-up — stale state after a reconnect, the daemon's own `updated`
+timestamp, the idle `--poll` that doubles as a liveness check, and the widget's
+game-mode/refresh/reconnect handling — is
+`/home/chirag/.opencode/plan/melodyctl-daemon-widget-1.5.1-fixes.md`, released as
+**CLI 1.5.1 (`v1.5.1`) + plugin 1.5.1 (`melodyctl-v1.5.1`)**.

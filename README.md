@@ -124,7 +124,9 @@ edge-triggered (reconnecting re-sends nothing), so a link held open is the
 freshest data source there is. `melodyctl daemon` holds it and publishes:
 
 - `$XDG_RUNTIME_DIR/melodyctl/state.json` - battery, case/bud state and game
-  mode as they are pushed, with a `session` field to gate on;
+  mode as they are pushed, with a `session` field to gate on; the battery is
+  re-read after `--poll` seconds of silence (default 120) so the reading cannot
+  drift and a link that went quiet is noticed;
 - `$XDG_RUNTIME_DIR/melodyctl/daemon.sock` - commands and the live event
   stream, for the CLI and for widgets.
 

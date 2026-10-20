@@ -32,15 +32,25 @@ from pathlib import Path
 from . import __version__
 from .devices import oneplus_branch, profile_for
 from .errors import MelodyctlError, classify_error
-from .protocol import (CMD_INFO, CMD_NOTIFY_PUSH, CMD_NOTIFY_REG_MULTI,
-                       NOTIFY_BATTERY, NOTIFY_BUD_STATUS, NOTIFY_GAME_MODE,
-                       RESP_NOTIFY_REGISTERED, decode_product_id)
+from .protocol import (CMD_BATT_GET, CMD_INFO, CMD_NOTIFY_PUSH,
+                       CMD_NOTIFY_REG_MULTI, NOTIFY_BATTERY, NOTIFY_BUD_STATUS,
+                       NOTIFY_GAME_MODE, RESP_FLAG, RESP_NOTIFY_REGISTERED,
+                       decode_battery_event, decode_product_id)
 from .transport import ADDR_DEFAULT, Buds, decode_push_frame
 
 HEARTBEAT = 60.0     # rewrite state.json this often so `ts` stays meaningful
+POLL = 120.0         # quiet-link battery read; also proves the link is alive
 DRAIN = 0.25         # seconds one read waits before the queue is serviced
 JOB_TIMEOUT = 30.0   # how long a client waits for the session thread
 QUEUE_MAX = 256      # per-subscriber backlog before pushes are dropped
+
+# A link loss is routine (the buds idle, or go back in the case); the hint the
+# transport carries is written for a direct `watch` session, so the daemon
+# publishes its own wording instead of advising a command the user is not running.
+DAEMON_HINTS = {
+    "disconnected": "The earbuds closed the link (idle, or back in the case). "
+                    "The daemon reconnects automatically.",
+}
 
 
 def runtime_dir() -> Path:
@@ -76,6 +86,7 @@ def _error(exc: BaseException) -> dict:
     message = (getattr(exc, "strerror", None) or str(exc)
                or exc.__class__.__name__)
     err = {"code": code, "message": message}
+    hint = DAEMON_HINTS.get(code, hint)
     if hint:
         err["hint"] = hint
     return err
@@ -97,11 +108,12 @@ class Daemon:
 
     def __init__(self, addr: str = ADDR_DEFAULT, retry_max: float = 60.0,
                  drain: float = DRAIN, heartbeat: float = HEARTBEAT,
-                 quiet: bool = False) -> None:
+                 poll: float = POLL, quiet: bool = False) -> None:
         self.addr = addr
         self.retry_max = max(1.0, retry_max)
         self.drain = drain
         self.heartbeat = heartbeat
+        self.poll = max(0.0, poll)
         self.quiet = quiet
         self.debug = bool(os.environ.get("MELODYCTL_DEBUG"))
         self.stop = threading.Event()
@@ -112,6 +124,7 @@ class Daemon:
         self._state_lock = threading.Lock()
         self._oneplus = False
         self._product: str | None = None
+        self._last_data = time.time()   # when the device last told us anything
         self.state: dict = {
             "version": __version__,
             "addr": addr,
@@ -247,6 +260,7 @@ class Daemon:
         """Merge one decoded push into the snapshot, then fan it out."""
         ev.setdefault("ts", time.time())
         eid = ev.get("event_id")
+        when = None
         with self._state_lock:
             if eid == NOTIFY_BATTERY:
                 self.state["battery"] = ev.get("battery") or None
@@ -255,10 +269,51 @@ class Daemon:
             elif eid == NOTIFY_GAME_MODE and ev.get("game"):
                 self.state["game"] = ev["game"]
             if eid in (NOTIFY_BATTERY, NOTIFY_BUD_STATUS, NOTIFY_GAME_MODE):
-                self.state["updated"] = ev.get("ts") or time.time()
+                when = ev.get("ts") or time.time()
+                self.state["updated"] = when
                 self.state["error"] = None
+        if when is not None:
+            self._last_data = when
         self._write_state()
         self._broadcast({"event": ev})
+
+    def _apply_battery(self, battery: dict | None, when: float | None = None) -> None:
+        """Record a battery reading obtained by a poll, not by a push.
+
+        The reading *is* current device data, so it updates ``battery`` and
+        ``updated``; it is not broadcast, because an attached ``watch`` is a
+        push stream and a poll is not a push.
+        """
+        now = when or time.time()
+        with self._state_lock:
+            self.state["battery"] = battery or None
+            self.state["updated"] = now
+            self.state["error"] = None
+        self._last_data = now
+        self._write_state()
+
+    @staticmethod
+    def _decode_battery_reply(payload: bytes) -> dict:
+        """Decode a `0x0106` reply payload (`[status][count][...]`)."""
+        if len(payload) < 2:
+            return {}
+        return decode_battery_event(payload[1:])
+
+    def _poll_battery(self, conn: Buds) -> dict:
+        """Read the battery now, folding any push caught in the reply window."""
+        battery: dict = {}
+        pushed = None
+        for f in conn.send_frames(CMD_BATT_GET):
+            if f["cmd"] in (CMD_NOTIFY_PUSH, RESP_NOTIFY_REGISTERED):
+                ev = self._handle_push(f["cmd"], f["payload"])
+                if ev and ev.get("event_id") == NOTIFY_BATTERY:
+                    pushed = ev.get("battery")
+            elif f["cmd"] == CMD_BATT_GET | RESP_FLAG:
+                battery = self._decode_battery_reply(f["payload"]) or battery
+        if conn.lost:
+            raise MelodyctlError(conn.lost, code="disconnected")
+        # A push that landed while we waited is newer than the reply.
+        return pushed or battery
 
     # ---- device session ----------------------------------------------------
     def _session_loop(self) -> None:
@@ -317,10 +372,16 @@ class Daemon:
             self.dbg(f"handshake done in {time.time() - t0:.1f}s")
             self.log(f"connected: {pid or '?'} ({name or 'unknown'}) on channel "
                      f"{conn.channel}; registered {advertised} via {reg['style']}")
+            # `updated` is "when the device last told us something": the seed
+            # read is such a moment, so carrying the previous session's time
+            # over would let a reader date fresh levels to an old push.
             self._set_state("connected", product=pid, device=name,
                             channel=conn.channel, registered=advertised,
-                            battery=battery, status=None, game=None, error=None)
+                            battery=battery, status=None, game=None, error=None,
+                            updated=(time.time() if battery else None))
+            self._last_data = time.time()
             last_write = time.time()
+            poll_fails = 0
             # read_events, not iter_events: the generator only returns from
             # next() once it has an event, so on this edge-triggered device the
             # loop would stop servicing client requests for minutes at a time.
@@ -331,6 +392,29 @@ class Daemon:
                     last_write = time.time()
                 for ev in conn.read_events(self.drain, self._oneplus, pid):
                     self._handle_event(ev)
+                if self.poll > 0 and time.time() - self._last_data >= self.poll:
+                    # Quiet link: refresh the one value we can query. This also
+                    # proves the peer is still there - a slept bud can leave the
+                    # socket open and simply stop answering, which no read can
+                    # detect.
+                    try:
+                        fresh = self._poll_battery(conn)
+                    except MelodyctlError:
+                        raise               # the link itself is gone
+                    except Exception as exc:  # noqa: BLE001 - not a reply
+                        raise MelodyctlError(
+                            "the earbuds stopped answering (battery poll)",
+                            code="disconnected") from exc
+                    if fresh:
+                        poll_fails = 0
+                        self._apply_battery(fresh)
+                    else:
+                        poll_fails += 1
+                        if poll_fails >= 2:
+                            raise MelodyctlError(
+                                "the earbuds stopped answering (battery poll)",
+                                code="disconnected")
+                        self._last_data = time.time()   # one more interval
         finally:
             self._product = None
             self._oneplus = False
@@ -376,13 +460,27 @@ class Daemon:
                 payload = bytes.fromhex(req.get("payload") or "")
                 wait = float(req.get("wait") or 2.5)
                 out: list[dict] = []
+                pushed_battery = False
                 for f in conn.send_frames(cmd, payload, wait):
                     if f["cmd"] in (CMD_NOTIFY_PUSH, RESP_NOTIFY_REGISTERED):
                         # a push landing inside the reply window: same handler
                         # as one read from the stream, or it is lost
-                        self._handle_push(f["cmd"], f["payload"])
+                        ev = self._handle_push(f["cmd"], f["payload"])
+                        if ev and ev.get("event_id") == NOTIFY_BATTERY:
+                            pushed_battery = True
                         continue
                     out.append({"cmd": f["cmd"], "payload": f["payload"].hex()})
+                if cmd == CMD_BATT_GET and not pushed_battery:
+                    # A client's battery read is device data too: keep the
+                    # snapshot (and its `updated`) in step with what it got.
+                    # A push that beat the reply is newer, so it wins.
+                    for f in out:
+                        if f["cmd"] == CMD_BATT_GET | RESP_FLAG:
+                            fresh = self._decode_battery_reply(
+                                bytes.fromhex(f["payload"]))
+                            if fresh:
+                                self._apply_battery(fresh)
+                            break
                 return {"ok": True, "frames": out}
             if op == "raw":
                 reply = conn.raw(bytes.fromhex(req.get("packet") or ""),
@@ -393,12 +491,13 @@ class Daemon:
         return {"ok": False, "error": {"code": "bad_request",
                                        "message": f"unknown op {op!r}"}}
 
-    def _handle_push(self, cmd: int, payload: bytes) -> None:
+    def _handle_push(self, cmd: int, payload: bytes) -> dict | None:
         """Decode a 0x0204 / 0x8202 frame caught in a reply window."""
         ev = decode_push_frame({"cmd": cmd, "payload": payload},
                                self._oneplus, self._product)
         if ev:
             self._handle_event(ev)
+        return ev
 
     # ---- socket server -----------------------------------------------------
     def _serve(self) -> None:

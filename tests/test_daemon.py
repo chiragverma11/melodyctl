@@ -227,7 +227,24 @@ class Jobs(Base):
         fake = FakeBuds({CMD_BATT_GET: [push, ack]})
         reply = d._run(fake, {"op": "send", "cmd": CMD_BATT_GET})
         self.assertEqual([f["cmd"] for f in reply["frames"]], [CMD_BATT_GET | RESP_FLAG])
+        # the push is newer than the poll the reply answers, so it still owns
+        # the snapshot (the reply must not undo it)
         self.assertEqual(d._snapshot()["battery"]["right"]["level"], 100)
+
+    def test_client_battery_read_updates_the_snapshot(self):
+        # A CLI `battery` through the daemon is device data: state.json must
+        # not keep an old `updated` while handing out a fresh level.
+        d = daemon.Daemon()
+        fake = FakeBuds({CMD_BATT_GET: [
+            {"cmd": CMD_BATT_GET | RESP_FLAG,
+             "payload": bytes.fromhex("00 01 01 32")}]})
+        before = d._snapshot()["updated"]
+        reply = d._run(fake, {"op": "send", "cmd": CMD_BATT_GET})
+        self.assertTrue(reply["ok"])
+        state = json.loads(daemon.state_path().read_text())
+        self.assertEqual(state["battery"]["left"]["level"], 50)
+        self.assertIsNotNone(state["updated"])
+        self.assertNotEqual(state["updated"], before)
 
     def test_unknown_op(self):
         d = daemon.Daemon()
@@ -304,6 +321,69 @@ class Session(Base):
         reply = d._job({"op": "send", "cmd": CMD_BATT_GET})
         self.assertTrue(reply["ok"], reply)
         self.assertLess(time.time() - started, 5.0)
+
+    def _start_hold(self, fake, poll=120.0):
+        d = daemon.Daemon(quiet=True, poll=poll)
+        d.acquire_lock()
+        self.addCleanup(d.release_lock)
+        original = daemon.Buds
+        daemon.Buds = lambda _addr: fake
+        self.addCleanup(setattr, daemon, "Buds", original)
+        thread = threading.Thread(target=d._hold, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 2.0)
+        self.addCleanup(d.stop.set)
+        return d
+
+    def _wait_state(self, predicate, timeout=3.0):
+        deadline = time.time() + timeout
+        state = None
+        while time.time() < deadline:
+            try:
+                state = json.loads(daemon.state_path().read_text())
+            except (OSError, ValueError):
+                state = None
+            if state and predicate(state):
+                return state
+            time.sleep(0.02)
+        self.fail(f"state never matched; last: {state}")
+
+    def _silent_fake(self, battery_level=0x32):
+        class Silent(FakeBuds):
+            def notify_caps(self):
+                return []
+
+            def read_events(self, wait=1.0, oneplus_branch=False, product_id=None):
+                time.sleep(0.02)
+                return []
+
+        pid = bytes.fromhex("00 10 24 06")
+        return Silent({CMD_INFO: [{"cmd": CMD_INFO | RESP_FLAG, "payload": pid}],
+                       CMD_BATT_GET: [{"cmd": CMD_BATT_GET | RESP_FLAG,
+                                       "payload": bytes([0, 1, 1, battery_level])}]})
+
+    def test_connect_seed_dates_the_battery_reading(self):
+        # `updated` is "when the device last told us something". The seed read
+        # counts, so a reconnect must not keep dating fresh levels to the last
+        # push of a dead session (the widget shows "Updated Nm ago").
+        d = self._start_hold(self._silent_fake())
+        state = self._wait_state(lambda s: s["session"] == "connected")
+        self.assertIsNotNone(state["updated"])
+        self.assertEqual(state["battery"]["left"]["level"], 50)
+        d.stop.set()
+
+    def test_idle_link_is_polled_into_the_snapshot(self):
+        # A quiet link still gets its battery refreshed (and the reply proves
+        # the peer is alive - a slept bud can leave the socket open and silent).
+        fake = self._silent_fake()
+        d = self._start_hold(fake, poll=0.15)
+        seeded = self._wait_state(lambda s: s["session"] == "connected")
+        fake.replies[CMD_BATT_GET] = [{"cmd": CMD_BATT_GET | RESP_FLAG,
+                                       "payload": bytes([0, 1, 1, 0x2A])}]
+        polled = self._wait_state(
+            lambda s: ((s.get("battery") or {}).get("left") or {}).get("level") == 42)
+        self.assertGreater(polled["updated"], seeded["updated"])
+        d.stop.set()
 
 
 class Client(Base):

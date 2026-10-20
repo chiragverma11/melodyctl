@@ -3,6 +3,26 @@
 All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.5.1] - 2026-10-20
+
+### Fixed
+- `state.json`'s `updated` is now set by the battery read that seeds a session,
+  so a reconnect no longer dates freshly read levels to the previous session's
+  last push (the widget showed "Updated 22m ago" next to current numbers).
+- A link loss (`disconnected`) reports the daemon's own hint instead of the
+  direct-`watch` advice ("Start 'melodyctl watch' again…"). Nothing is wrong
+  with the daemon's link handling; it only looked like an error.
+
+### Added
+- `melodyctl daemon --poll SECONDS` (default **120**, `0` disables): after that
+  much silence while connected, read the battery once. This keeps `updated`
+  honest when the device pushes nothing, and two missed polls in a row are
+  treated as a dead link (a slept bud can leave the socket open and silent), so
+  the session is rebuilt.
+- A `battery` read served to a client (the CLI, a widget's manual refresh) now
+  updates the daemon snapshot and `updated` too, instead of leaving
+  `state.json` with fresh levels and an old timestamp.
+
 ## [1.5.0] - 2026-10-19
 
 ### Added
