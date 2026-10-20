@@ -322,6 +322,33 @@ class Session(Base):
         self.assertTrue(reply["ok"], reply)
         self.assertLess(time.time() - started, 5.0)
 
+    def test_two_silent_polls_drop_the_session(self):
+        # A bud that slept can leave the socket open and answer nothing; the
+        # reply timeout is the only signal, so the session must be rebuilt.
+        fake = self._silent_fake()
+        d = daemon.Daemon(quiet=True, poll=0.1)
+        d.acquire_lock()
+        self.addCleanup(d.release_lock)
+        original = daemon.Buds
+        daemon.Buds = lambda _addr: fake
+        self.addCleanup(setattr, daemon, "Buds", original)
+        fake.replies[CMD_BATT_GET] = []          # seed and polls get nothing
+        failures: list[BaseException] = []
+
+        def hold():
+            try:
+                d._hold()
+            except BaseException as exc:         # noqa: BLE001 - the assertion
+                failures.append(exc)
+
+        thread = threading.Thread(target=hold, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 3.0)
+        thread.join(timeout=3.0)
+        self.assertFalse(thread.is_alive(), "session never gave up")
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0].code, "disconnected")
+
     def _start_hold(self, fake, poll=120.0):
         d = daemon.Daemon(quiet=True, poll=poll)
         d.acquire_lock()

@@ -366,7 +366,9 @@ class Daemon:
             battery = None
             try:
                 battery = conn.battery()
-            except MelodyctlError as exc:
+            except ValueError as exc:
+                # no reply: the link is up, so keep it and seed on the next
+                # drain/poll rather than dropping a usable session
                 self.log(f"battery poll failed: {exc}")
             name = profile.get("name") if profile else None
             self.dbg(f"handshake done in {time.time() - t0:.1f}s")

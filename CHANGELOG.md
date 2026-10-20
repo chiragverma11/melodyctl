@@ -12,6 +12,9 @@ to [Semantic Versioning](https://semver.org/).
 - A link loss (`disconnected`) reports the daemon's own hint instead of the
   direct-`watch` advice ("Start 'melodyctl watch' again…"). Nothing is wrong
   with the daemon's link handling; it only looked like an error.
+- A battery seed read that gets no reply no longer tears down a working link
+  (`Buds.battery` raises `ValueError`, which the seed path did not expect); the
+  session stays up and the idle poll fills the value in.
 
 ### Added
 - `melodyctl daemon --poll SECONDS` (default **120**, `0` disables): after that
