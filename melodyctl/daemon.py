@@ -33,7 +33,8 @@ from . import __version__
 from .devices import oneplus_branch, profile_for
 from .errors import MelodyctlError, classify_error
 from .protocol import (CMD_BATT_GET, CMD_INFO, CMD_NOTIFY_PUSH,
-                       CMD_NOTIFY_REG_MULTI, NOTIFY_BATTERY, NOTIFY_BUD_STATUS,
+                       CMD_NOTIFY_REG_MULTI, CMD_SWITCH_FEATURE,
+                       FEATURE_GAME_MODE, NOTIFY_BATTERY, NOTIFY_BUD_STATUS,
                        NOTIFY_GAME_MODE, RESP_FLAG, RESP_NOTIFY_REGISTERED,
                        decode_battery_event, decode_product_id)
 from .transport import ADDR_DEFAULT, Buds, decode_push_frame
@@ -315,6 +316,28 @@ class Daemon:
         # A push that landed while we waited is newer than the reply.
         return pushed or battery
 
+    def _clear_stale_game(self, payload: bytes) -> None:
+        """Forget a pushed game value that a served command just replaced.
+
+        The device only reports game mode as push event 5, and only after a
+        *gesture* that changes it (claim #48) - a `0x0403` write is not echoed,
+        and there is no read-back, so the snapshot cannot be refreshed. Keeping
+        the pre-command value would make state.json (and the widget) claim a
+        state the command just changed; null it when it disagrees, and let the
+        next event 5 restore a device-reported value.
+        """
+        if len(payload) < 2 or payload[0] != FEATURE_GAME_MODE:
+            return
+        want_on = payload[1] != 0
+        with self._state_lock:
+            game = self.state.get("game")
+            if not game or bool(game.get("on")) == want_on:
+                return
+            self.state["game"] = None
+        self.dbg(f"game -> {'on' if want_on else 'off'}: "
+                 f"cleared the stale pushed value")
+        self._write_state()
+
     # ---- device session ----------------------------------------------------
     def _session_loop(self) -> None:
         delay = 2.0
@@ -483,6 +506,10 @@ class Daemon:
                             if fresh:
                                 self._apply_battery(fresh)
                             break
+                if cmd == CMD_SWITCH_FEATURE and any(
+                        f["cmd"] == CMD_SWITCH_FEATURE | RESP_FLAG
+                        and f["payload"] == "00" for f in out):
+                    self._clear_stale_game(payload)
                 return {"ok": True, "frames": out}
             if op == "raw":
                 reply = conn.raw(bytes.fromhex(req.get("packet") or ""),

@@ -4,10 +4,12 @@
   [hw:ETI81 2026-10-17].
 - Verified on ETI81: feature `6` = **game (low-latency) mode**; success acks
   payload `00` [hw:ETI81 2026-10-17]. `melodyctl game on|off` uses this.
-- No read-back: the device does not push feature-6 state, and ETI81 does not
-  unlock the `0x010d` batch-status read either [hw:ETI81 2026-10-17]; prior
-  art reads feature state back via `0x010d` on models that support it
-  [prior:gazz@abe70f4] [untested].
+- No read-back: the device does not answer a query for feature-6 state, and
+  ETI81 does not unlock the `0x010d` batch-status read either
+  [hw:ETI81 2026-10-17]; prior art reads feature state back via `0x010d` on
+  models that support it [prior:gazz@abe70f4] [untested]. The mode *is* reported
+  as push event `5`, but only after a **gesture** that changes it (claim #48) —
+  a `0x0403` write is not echoed [hw:ETI81 2026-10-19].
 - Feature ids are **device data, not app constants**: the app parses
   `(featureType, status)` pairs from device frames and echoes the advertised
   id back in the switch — `FeatureSwitchInfo` [apk:FeatureSwitchInfo#<init>]

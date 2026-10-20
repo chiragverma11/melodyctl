@@ -95,6 +95,10 @@ Rules a reader can rely on:
   so they stay `null` after a reconnect until the next event. `status` follows
   a case/bud change; `game` follows a game-mode change (event `5`, which ETI81
   pushes unsolicited even though it refuses to register it — claims #48/#49).
+  Event `5` is only sent after a **gesture** that changes the mode (claim #48),
+  so when the daemon serves a `game on|off` that disagrees with `game`, it
+  clears the stale value to `null` instead of leaving a state the command just
+  replaced; the next event `5` restores a device-reported value.
 
 ## `daemon.sock`
 
@@ -153,7 +157,9 @@ hardware).
 ## Limits
 
 - Event `5` (game mode) is push-only and unsolicited: the daemon cannot ask for
-  the current value, so `game` is `null` until something changes it.
+  the current value, so `game` is `null` until something changes it. A served
+  `game on|off` clears a disagreeing value (the device does not echo commands),
+  so the widget shows "last set here" until the next gesture-driven push.
 - The daemon holds the RFCOMM link, so a *different* app (the phone's HeyMelody)
   and the daemon contend for it exactly as two CLI processes do today. `busy`
   shows up as `session: waiting` with `error.code == "busy"`.

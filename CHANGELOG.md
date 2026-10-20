@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.5.2] - 2026-10-20
+
+### Fixed
+- A served `game on|off` now clears a disagreeing `game` value from
+  `state.json`. The device reports game mode only as push event `5`, and only
+  after a *gesture* that changes it (claim #48); a command is not echoed and
+  there is no query, so the pre-command push stayed in the snapshot and made
+  the widget show the old mode after it had been changed (observed: disabling
+  from the widget still displayed **On**).
+
 ## [1.5.1] - 2026-10-20
 
 ### Fixed

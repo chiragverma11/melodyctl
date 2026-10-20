@@ -98,4 +98,5 @@ The follow-up — stale state after a reconnect, the daemon's own `updated`
 timestamp, the idle `--poll` that doubles as a liveness check, and the widget's
 game-mode/refresh/reconnect handling — is
 `/home/chirag/.opencode/plan/melodyctl-daemon-widget-1.5.1-fixes.md`, released as
-**CLI 1.5.1 (`v1.5.1`) + plugin 1.5.1 (`melodyctl-v1.5.1`)**.
+**CLI 1.5.1 (`v1.5.1`) + plugin 1.5.1 (`melodyctl-v1.5.1`)**, with the
+game-mode-command snapshot fix as **1.5.2**.

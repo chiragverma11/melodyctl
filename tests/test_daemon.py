@@ -14,7 +14,8 @@ import unittest
 
 from melodyctl import daemon, remote
 from melodyctl.errors import MelodyctlError
-from melodyctl.protocol import CMD_BATT_GET, CMD_INFO, RESP_FLAG
+from melodyctl.protocol import (CMD_BATT_GET, CMD_INFO, CMD_SWITCH_FEATURE,
+                                RESP_FLAG)
 from melodyctl.transport import Buds
 
 
@@ -245,6 +246,34 @@ class Jobs(Base):
         self.assertEqual(state["battery"]["left"]["level"], 50)
         self.assertIsNotNone(state["updated"])
         self.assertNotEqual(state["updated"], before)
+
+    def test_game_command_clears_a_disagreeing_push(self):
+        # The device only reports game mode with event 5, and only after a
+        # gesture - a served command is not echoed, so a push from before it
+        # must not stay in the snapshot as if it were current.
+        d = daemon.Daemon()
+        d._handle_event({"event_id": 5, "game": {"on": True, "state": 1}, "ts": 5})
+        fake = FakeBuds({CMD_SWITCH_FEATURE: [
+            {"cmd": CMD_SWITCH_FEATURE | RESP_FLAG, "payload": bytes([0])}]})
+        reply = d._run(fake, {"op": "send", "cmd": CMD_SWITCH_FEATURE,
+                              "payload": "0600"})
+        self.assertTrue(reply["ok"])
+        state = json.loads(daemon.state_path().read_text())
+        self.assertIsNone(state["game"])
+        self.assertEqual(state["updated"], 5)   # a command is not device data
+
+    def test_game_command_keeps_an_agreeing_or_rejected_push(self):
+        d = daemon.Daemon()
+        pushed = {"on": True, "state": 1}
+        d._handle_event({"event_id": 5, "game": pushed, "ts": 5})
+        agree = FakeBuds({CMD_SWITCH_FEATURE: [
+            {"cmd": CMD_SWITCH_FEATURE | RESP_FLAG, "payload": bytes([0])}]})
+        d._run(agree, {"op": "send", "cmd": CMD_SWITCH_FEATURE, "payload": "0601"})
+        self.assertEqual(d._snapshot()["game"], pushed)
+        reject = FakeBuds({CMD_SWITCH_FEATURE: [
+            {"cmd": CMD_SWITCH_FEATURE | RESP_FLAG, "payload": bytes([1])}]})
+        d._run(reject, {"op": "send", "cmd": CMD_SWITCH_FEATURE, "payload": "0600"})
+        self.assertEqual(d._snapshot()["game"], pushed)
 
     def test_unknown_op(self):
         d = daemon.Daemon()
